@@ -9,6 +9,34 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyutils.utils as utils
 
+def plot_shaded_error(x, y, y_err=None, ax=None, **kwargs):
+
+    # if no axes are passed in, create an axis
+    if ax is None:
+        # if there are no figures, create one first
+        if len(plt.get_fignums()) == 0:
+            fig, ax = plt.subplots(1, 1)
+        else:
+            ax = plt.gca()
+
+    if not y_err is None:
+        # plot error first
+        upper = y + y_err
+        lower = y - y_err
+        # don't include the error in the legend
+        tmp_kwargs = kwargs.copy()
+        tmp_kwargs['label'] = '_'
+
+        fill = ax.fill_between(x, upper, lower, alpha=0.2, **tmp_kwargs)
+        # make sure the fill is the same color as the signal line
+        c = fill.get_facecolor()
+        ax.plot(x, y, color=c[:, 0:3], **kwargs)
+    else:
+        # just plot signal
+        ax.plot(x, y, **kwargs)
+
+    return ax
+
 def plot_psth(signal, time, error=None, ax=None, plot_x0=True, **kwargs):
 
     # if no axes are passed in, create an axis
@@ -23,20 +51,7 @@ def plot_psth(signal, time, error=None, ax=None, plot_x0=True, **kwargs):
     if plot_x0:
         ax.axvline(dashes=[4, 4], c='k', lw=1)
 
-    if not error is None:
-        # plot error first
-        upper = signal + error
-        lower = signal - error
-        # don't include the error in the legend
-        tmp_kwargs = kwargs.copy()
-        tmp_kwargs['label'] = '_'
-        fill = ax.fill_between(time, upper, lower, alpha=0.2, **tmp_kwargs)
-        # make sure the fill is the same color as the signal line
-        c = fill.get_facecolor()
-        ax.plot(time, signal, color=c[:, 0:3], **kwargs)
-    else:
-        # just plot signal
-        ax.plot(time, signal, **kwargs)
+    plot_shaded_error(time, signal, y_err=error, ax=ax, **kwargs)
 
     return ax
 

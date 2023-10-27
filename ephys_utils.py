@@ -79,7 +79,7 @@ def get_filter_kernel(width=0.2, filter_type='half_gauss', bin_width=5e-3):
     width : (optional) The width of the filter in seconds. The default is 0.2 s.
     filter_type : (optional) The type of filter. Acceptable values: 'avg', 'causal_avg', 'gauss', 'half_gauss', 'exp', and 'none'.
         The default is 'half_gauss'.
-    bin_width : (optional) The width of the bin in seconds. The default is 5e-5 s.
+    bin_width : (optional) The width of the bin in seconds. The default is 5e-3 s.
 
     Returns
     -------
@@ -166,7 +166,7 @@ def get_smoothed_firing_rate(spike_times, kernel=None, start_time=0, end_time=np
     # compute buffers around the start and end times to include spikes that should be included in the filter
     # shift them by half a bin width to make the resulting time have a value at t=0
     pre_buff = (len(kernel['weights']) - kernel['center_idx'] - 1) * bin_width + bin_width/2
-    post_buff = (kernel['center_idx']) * bin_width + bin_width/2
+    post_buff = kernel['center_idx'] * bin_width + bin_width/2
 
     # compute signal and smooth it with a filter
     signal, bin_edges = get_binned_spike_counts(spike_times, start_time-pre_buff, end_time+post_buff, bin_width)
