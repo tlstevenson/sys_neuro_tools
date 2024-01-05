@@ -9,9 +9,9 @@ Library provided by Doric to load a .doric file
 
 import h5py
 import numpy as np
-import acq_utils as acq
 import pyutils.utils as utils
-import pickle
+from scipy.stats import mode
+from collections import Counter
 
 def ish5dataset(item):
     return isinstance(item, h5py.Dataset)
@@ -78,47 +78,132 @@ def ExtractDataAcquisition(filename):
 
 # Additional Functions Written by Tanner
 
-def get_flattened_data(filename):
+def get_specific_data(filename, data_path, signal_name_dict):
+    ''' Helper method to grab specific data from the doric file and return a flattened dictionary of the data '''
+
+    specific_data = {}
+    # keep track of previously loaded data to not duplicate i/o work
+    loaded_data = {}
+
+    with h5py.File(filename, 'r') as f:
+        for key, signal_dict in signal_name_dict.items():
+            value_dict = {}
+            for value_name, value_path in signal_dict.items():
+                # if data has already been loaded, just copy it
+                if value_path in loaded_data:
+                    value_dict[value_name] = loaded_data[value_path].copy()
+                else:
+                    value_dict[value_name] = np.array(f[data_path + value_path])
+                    loaded_data[value_path] = value_dict[value_name].copy()
+
+            specific_data[key] = value_dict
+
+    return specific_data
+
+def get_flattened_data(filename, signals_of_interest=[]):
     ''' Helper method to flatten the acquired data into a more readily useable format '''
     dr_data = ExtractDataAcquisition(filename)
     flat_data = {}
 
     for signal in dr_data:
-        signal_data = {}
-
-        # get default name, if no better name found
+        # get signal name
         signal_name = signal['Name'].split('_')[-1]
 
+        if len(signals_of_interest) > 0 and not any([soi in signal_name for soi in signals_of_interest]):
+            continue
+
+        signal_data = {}
         for entry in signal['Data']:
             # save values
             signal_data[entry['Name']] = entry['Data']
-
-            # get a better name, if there is only one signal and a time signal
-            if len(signal['Data']) == 2:
-                if 'Username' in entry['DataInfo']:
-                    signal_name = entry['DataInfo']['Username']
-                elif 'Name' in entry['DataInfo']:
-                    signal_name = entry['DataInfo']['Name']
 
         flat_data[signal_name] = signal_data
 
     return flat_data
 
-def get_and_check_data(filename):
-    ''' Checks the doric data for any issues, and returns issue descriptions if found'''
-
-    data = get_flattened_data(filename)
+def fill_missing_data(flat_data, time_key = 'time'):
+    ''' Checks the doric data for any issues with skipped data points,
+        and corrects any skipped timepoints by putting NaNs for the values
+        at the skipped timepoints.
+        Returns the corrected data and a description of any issues that were found '''
 
     issues = []
 
     # check timstamps for any skipped information
-    for name in data.keys():
-        ts_diffs = np.diff(data[name]['Time'])
-        close = np.isclose(ts_diffs[0], ts_diffs)
+    for name in flat_data.keys():
+        time = flat_data[name][time_key]
+        ts_diffs = np.diff(time)
+        close = np.isclose(mode(ts_diffs)[0], ts_diffs, atol=2e-6, rtol=0)
 
         if not all(close):
-            idxs = np.where(~close)[0]
-            issues.append('There may be timestep skips in signal {0} at {1}'.format(
-                name, ', '.join([str(i) for i in idxs])))
+            dt = np.round(np.mean(ts_diffs[close]), 8)
+            idxs = np.where(~close)[0]+1
+            # round to nearest decimal because timestamps can be off by half a step
+            ts_skipped = utils.convert_to_multiple(ts_diffs[~close]/dt, 0.5)-1
 
-    return data, issues
+            signal_names = [k for k in flat_data[name].keys() if k != time_key]
+
+            # add in Nans
+            idx_offset = 0
+            up_half_step = False
+            prev_half_step_idx = 0
+
+            for idx, n_skip in zip(idxs, ts_skipped):
+
+                # if we skipped a whole number of steps
+                if n_skip % 1 == 0:
+                    n_skip = int(n_skip)
+
+                    # if we are up a half step, we need to correct all the rest between the last skip and this
+                    if up_half_step:
+                        time[prev_half_step_idx:idx+idx_offset] += dt/2
+                        prev_half_step_idx = idx + idx_offset + n_skip
+
+                else: # we skipped a half step
+                    if up_half_step: # if this is the second time we are skipping a half step
+                        # correct all the rest between last skip and this
+                        time[prev_half_step_idx:idx+idx_offset] += dt/2
+
+                        # we already added the extra timestep, so subtract 0.5 from n_skips
+                        n_skip = int(n_skip - 0.5)
+                        up_half_step = False
+                    else:
+                        # add an extra timestep at the beginning of the skip
+                        n_skip = int(n_skip + 0.5)
+                        up_half_step = True
+
+                        # update the previous half step index
+                        prev_half_step_idx = idx + idx_offset + n_skip
+
+
+                # update time array
+                time = np.insert(time, idx+idx_offset,
+                                 time[idx+idx_offset-1]+dt*np.arange(1,n_skip+1))
+                # update signals
+                for sig_name in signal_names:
+                    flat_data[name][sig_name] = np.insert(flat_data[name][sig_name],
+                                                         idx+idx_offset,
+                                                         np.full(n_skip, np.nan))
+
+                idx_offset += n_skip
+
+            # if there were uneven numbers of half steps, shift remaining timestamps
+            if up_half_step:
+                time[prev_half_step_idx:] += dt/2
+
+            # if the starting time is not a multiple of dt, shift all t by a half step
+            if utils.convert_to_multiple(time[0]/dt, 0.5) % 1 != 0:
+                time -= dt/2
+
+            flat_data[name][time_key] = utils.convert_to_multiple(time, dt)
+
+            if np.sum(~np.isclose(dt, np.diff(flat_data[name][time_key]), atol=2e-6, rtol=0)) != 0:
+                raise ValueError('Missing data in signal {} could not be filled properly'.format(name))
+
+            # log issues
+            skip_counts = Counter(ts_skipped)
+            issues.append('Signal {0} had {1} total time skips:\n{2}'.format(
+                name, np.sum(ts_skipped),
+                '\n'.join(['  {0} step(s): {1} time(s)'.format(k,v) for k,v in skip_counts.items()])))
+
+    return flat_data, issues

@@ -8,16 +8,12 @@ Set of functions to create common plots
 import matplotlib.pyplot as plt
 import numpy as np
 import pyutils.utils as utils
+import seaborn as sb
 
 def plot_shaded_error(x, y, y_err=None, ax=None, **kwargs):
 
-    # if no axes are passed in, create an axis
     if ax is None:
-        # if there are no figures, create one first
-        if len(plt.get_fignums()) == 0:
-            fig, ax = plt.subplots(1, 1)
-        else:
-            ax = plt.gca()
+        ax = get_axes()
 
     if not y_err is None:
         # plot error first
@@ -30,30 +26,23 @@ def plot_shaded_error(x, y, y_err=None, ax=None, **kwargs):
         fill = ax.fill_between(x, upper, lower, alpha=0.2, **tmp_kwargs)
         # make sure the fill is the same color as the signal line
         c = fill.get_facecolor()
-        ax.plot(x, y, color=c[:, 0:3], **kwargs)
+        line = ax.plot(x, y, color=c[:, 0:3], **kwargs)
     else:
         # just plot signal
-        ax.plot(x, y, **kwargs)
+        line = ax.plot(x, y, **kwargs)
 
-    return ax
+    return line, ax
 
 def plot_psth(signal, time, error=None, ax=None, plot_x0=True, **kwargs):
 
-    # if no axes are passed in, create an axis
     if ax is None:
-        # if there are no figures, create one first
-        if len(plt.get_fignums()) == 0:
-            fig, ax = plt.subplots(1, 1)
-        else:
-            ax = plt.gca()
+        ax = get_axes()
 
     # plot line at x=0
     if plot_x0:
-        ax.axvline(dashes=[4, 4], c='k', lw=1)
+        plot_x0line(ax)
 
-    plot_shaded_error(time, signal, y_err=error, ax=ax, **kwargs)
-
-    return ax
+    return plot_shaded_error(time, signal, y_err=error, ax=ax, **kwargs)
 
 
 def plot_psth_dict(psth_dict, ax=None, plot_x0=True, **kwargs):
@@ -65,15 +54,11 @@ def plot_raster(spike_times, ax=None, plot_x0=True):
 
     # if no axes are passed in, create an axis
     if ax is None:
-        # if there are no figures, create one first
-        if len(plt.get_fignums()) == 0:
-            fig, ax = plt.subplots(1, 1)
-        else:
-            ax = plt.gca()
+        ax = get_axes()
 
     # plot line at x=0
     if plot_x0:
-        ax.axvline(dashes=[4, 4], c='k', lw=1)
+        plot_x0line(ax)
 
     # determine if there are multiple trials to stack or not
     if len(spike_times) > 0 and utils.is_scalar(spike_times[0]):
@@ -83,12 +68,12 @@ def plot_raster(spike_times, ax=None, plot_x0=True):
     for i, trial_spike_times in enumerate(spike_times):
         y_min = [i] * len(trial_spike_times)
         y_max = [i+1] * len(trial_spike_times)
-        ax.vlines(trial_spike_times, y_min, y_max)
+        lines = ax.vlines(trial_spike_times, y_min, y_max)
 
     # this doesn't work correctly... not sure why
     #ax.eventplot(spike_times, **kwargs)
 
-    return ax
+    return lines, ax
 
 
 def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation='h', ax=None):
@@ -96,13 +81,8 @@ def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation=
     if orientation != 'h' and orientation != 'v':
         raise ValueError('The orientation can only be \'h\' for horizontal groups or \'v\' for vertically stacked bars')
 
-    # if no axes are passed in, create an axis
     if ax is None:
-        # if there are no figures, create one first
-        if len(plt.get_fignums()) == 0:
-            fig, ax = plt.subplots(1, 1)
-        else:
-            ax = plt.gca()
+        ax = get_axes()
 
     # get number of data categories to plot
     n_cats = len(values_list)
@@ -141,9 +121,90 @@ def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation=
         y_start = np.zeros_like(x)
 
         for i in range(n_cats):
-            ax.bar(x, values_list[i], width=0.75, label=value_labels[i], bottom=y_start)
-            y_start = y_start + values_list[i]
+            vals = np.array(values_list[i])
+            vals[np.isnan(vals)] = 0
+            ax.bar(x, vals, width=0.75, label=value_labels[i], bottom=y_start)
+            y_start = y_start + vals
 
         ax.set_xticks(x, x_labels)
 
     ax.legend()
+
+def plot_heatmap(values, ax=None, x_rot=0, y_rot=0, fmt='.3f', cbar=True, **kwargs):
+    ''' Plot a heatmap of the given values '''
+    if ax is None:
+        ax = get_axes()
+
+    # plot the heatmap
+    hm = sb.heatmap(values, annot=(fmt != None), fmt=fmt, ax=ax, linewidth=1, vmin=0, vmax=1, cbar=cbar, **kwargs)
+    # move x axis labels to the top
+    ax.xaxis.tick_top()
+    ax.xaxis.set_label_position('top')
+    # adjust label orientation
+    ax.xaxis.set_tick_params(rotation=x_rot)
+    ax.yaxis.set_tick_params(rotation=y_rot)
+    # remove tick marks
+    ax.tick_params(axis='both', which='both', length=0)
+
+    return hm, ax
+
+def plot_stacked_heatmap_avg(data_mat, t, heatmap_ax, avg_ax, x_label='', y_label='', title='',
+                             show_cbar=True, error_type='std', cmap=None, vmax=None, vmin=None, **kwargs):
+    ''' Plots a heatmap of the data matrix along with an average signal trace '''
+
+    # first plot the average activity to get the appropriate x axis labels for the heatmap
+    match error_type:
+        case 'std':
+            err = np.nanstd(data_mat, axis=0)
+        case 'se':
+            err = utils.stderr(data_mat, axis=0)
+        case 'none' | None:
+            err = None
+        case _:
+            raise ValueError('Incorrect error type specified: {}. Possible error types: std, se, none.'.format(error_type))
+
+    line = plot_psth(np.nanmean(data_mat, axis=0), t, err, avg_ax, **kwargs)
+    avg_ax.set_xlabel(x_label)
+    avg_ax.set_ylabel(y_label)
+
+    # get heatmap tick locations
+    xticks = np.array(avg_ax.get_xticks())
+    # curate to limits of plot
+    xticks = xticks[(xticks >= t[0]) & (xticks <= t[-1])]
+    tick_start_idx = np.argmin(abs(t-xticks[0]))
+    tick_end_idx = np.argmin(abs(t-xticks[-1]))
+    tick_labels = [str(x) for x in xticks]
+    tick_idxs = np.linspace(tick_start_idx, tick_end_idx, len(tick_labels))
+
+    im = heatmap_ax.imshow(data_mat, interpolation=None, aspect='auto', cmap=cmap,
+                           vmax=vmax, vmin=vmin, **kwargs)
+    zero_idx = np.argmin(abs(t))
+    plot_x0line(heatmap_ax, zero_idx)
+    heatmap_ax.set_xticks(tick_idxs, labels=tick_labels)
+    heatmap_ax.set_ylabel('Trials')
+    heatmap_ax.set_title(title)
+
+    if show_cbar:
+        fig = heatmap_ax.get_figure()
+        fig.colorbar(im, ax=heatmap_ax, label=y_label)
+
+    return im, line
+
+## General Helper Methods
+def get_axes():
+    # if there are no figures, create one first
+    if len(plt.get_fignums()) == 0:
+        _, ax = plt.subplots(1, 1)
+    else:
+        ax = plt.gca()
+
+    return ax
+
+def plot_x0line(ax=None, x0=None, **kwargs):
+    if ax is None:
+        ax = get_axes()
+
+    if x0 is None:
+        ax.axvline(dashes=[4, 4], c='k', lw=1, **kwargs)
+    else:
+        ax.axvline(x0, dashes=[4, 4], c='k', lw=1, **kwargs)

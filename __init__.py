@@ -1,5 +1,11 @@
 import sys
 from os import path
 
-sys.path.append(path.join(path.dirname(path.abspath(__file__)), '..')) # Adds parent directory to find other repos next to this one
-sys.path.append(path.dirname(path.abspath(__file__))) # Adds the repo directory to find modules within this repo
+this_dir = path.dirname(path.abspath(__file__))
+parent_dir = path.dirname(this_dir)
+
+if not this_dir in sys.path:
+    sys.path.append(this_dir)
+
+if not parent_dir in sys.path:
+    sys.path.append(parent_dir)
