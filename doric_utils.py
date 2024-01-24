@@ -138,64 +138,49 @@ def fill_missing_data(flat_data, time_key = 'time'):
         if not all(close):
             dt = np.round(np.mean(ts_diffs[close]), 8)
             idxs = np.where(~close)[0]+1
-            # round to nearest decimal because timestamps can be off by half a step
-            ts_skipped = utils.convert_to_multiple(ts_diffs[~close]/dt, 0.5)-1
+            # round to nearest decimal because timestamps can be off by a multiple of a step, based on the decimation
+            ts_skipped = utils.convert_to_multiple(ts_diffs[~close]/dt, 0.001)-1
 
             signal_names = [k for k in flat_data[name].keys() if k != time_key]
 
-            # add in Nans
+            # adjust the timestamps and add in Nans where necessary
             idx_offset = 0
-            up_half_step = False
-            prev_half_step_idx = 0
 
             for idx, n_skip in zip(idxs, ts_skipped):
 
-                # if we skipped a whole number of steps
-                if n_skip % 1 == 0:
-                    n_skip = int(n_skip)
+                # if we skipped one timestep or less, this is because of a bug with writing data to file
+                # where the data is written at the next cycle, but the timestamp still increments, 
+                # so we need to reduce the rest of the timestamps by the skipped amount
+                if n_skip <= 1 :
+                    for sig_name in signal_names:
+                        time[idx+idx_offset:] -= dt*n_skip
 
-                    # if we are up a half step, we need to correct all the rest between the last skip and this
-                    if up_half_step:
-                        time[prev_half_step_idx:idx+idx_offset] += dt/2
-                        prev_half_step_idx = idx + idx_offset + n_skip
+                else: # we skipped multiple steps, so need to insert nans
+                
+                    # see whether there were any partial steps skipped as well
+                    sub_skips = n_skip % 1
+                    full_skips = int(n_skip)
 
-                else: # we skipped a half step
-                    if up_half_step: # if this is the second time we are skipping a half step
-                        # correct all the rest between last skip and this
-                        time[prev_half_step_idx:idx+idx_offset] += dt/2
+                    # update signals
+                    for sig_name in signal_names:
+                        flat_data[name][sig_name] = np.insert(flat_data[name][sig_name],
+                                                             idx+idx_offset,
+                                                             np.full(full_skips, np.nan))
+                    
+                    # update time array
+                    time = np.insert(time, idx+idx_offset,
+                                     time[idx+idx_offset-1] + dt*np.arange(1, full_skips+1))
+                    
+                    idx_offset += full_skips
+                    
+                    # account for partial skips
+                    if sub_skips != 0:
+                        time[idx+idx_offset:] -= dt*sub_skips
 
-                        # we already added the extra timestep, so subtract 0.5 from n_skips
-                        n_skip = int(n_skip - 0.5)
-                        up_half_step = False
-                    else:
-                        # add an extra timestep at the beginning of the skip
-                        n_skip = int(n_skip + 0.5)
-                        up_half_step = True
-
-                        # update the previous half step index
-                        prev_half_step_idx = idx + idx_offset + n_skip
-
-
-                # update time array
-                time = np.insert(time, idx+idx_offset,
-                                 time[idx+idx_offset-1]+dt*np.arange(1,n_skip+1))
-                # update signals
-                for sig_name in signal_names:
-                    flat_data[name][sig_name] = np.insert(flat_data[name][sig_name],
-                                                         idx+idx_offset,
-                                                         np.full(n_skip, np.nan))
-
-                idx_offset += n_skip
-
-            # if there were uneven numbers of half steps, shift remaining timestamps
-            if up_half_step:
-                time[prev_half_step_idx:] += dt/2
-
-            # if the starting time is not a multiple of dt, shift all t by a half step
-            if utils.convert_to_multiple(time[0]/dt, 0.5) % 1 != 0:
-                time -= dt/2
-
-            flat_data[name][time_key] = utils.convert_to_multiple(time, dt)
+            # make sure time array is evenly spaced by the dt
+            # account for any initial offset of the first point that is less than dt
+            offset = time[0] % dt
+            flat_data[name][time_key] = utils.convert_to_multiple(time-offset, dt) + offset
 
             if np.sum(~np.isclose(dt, np.diff(flat_data[name][time_key]), atol=2e-6, rtol=0)) != 0:
                 raise ValueError('Missing data in signal {} could not be filled properly'.format(name))

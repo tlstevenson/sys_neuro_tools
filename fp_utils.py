@@ -7,7 +7,9 @@ Created on Wed Dec 20 22:33:47 2023
 
 import numpy as np
 from sklearn.linear_model import LinearRegression
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, OptimizeWarning
+
+import warnings
 
 
 def calc_iso_dff(lig_signal, iso_signal):
@@ -23,13 +25,15 @@ def calc_iso_dff(lig_signal, iso_signal):
     Returns
     -------
     The isosbestic corrected dF/F signal
+    The fitted isosbestic signal
 
     '''
 
     fitted_iso = fit_signal(iso_signal, lig_signal)
+    # calculate dF/F
+    dff = ((lig_signal - fitted_iso)/fitted_iso)*100
 
-    # calculate and return dF/F
-    return ((lig_signal - fitted_iso)/fitted_iso)*100
+    return dff, fitted_iso
 
 
 def fit_signal(signal_to_fit, signal):
@@ -75,24 +79,33 @@ def fit_baseline(signal, n_points_min=100):
 
     '''
 
-    baseline_form = lambda x, a, b, c, d: a*np.exp(-b*x) - c*x + d
-
-    if len(signal) % n_points_min != 0:
-        min_signal = np.append(signal, np.full(n_points_min - (len(signal) % n_points_min), np.nan))
-
-    # compute the minimum value every n points
-    min_signal = np.nanmin(np.reshape(min_signal, (-1, n_points_min)), axis=1)
-
-    # ignore nans in fit
-    nans = np.isnan(min_signal)
-
-    # fit curve to these minimum values
-    x = np.arange(len(min_signal))
-    params = curve_fit(baseline_form, x[~nans], min_signal[~nans])[0]
-
-    # return full baseline of the same length as the signal
-    x = np.arange(len(signal))/n_points_min
-    return baseline_form(x, *params)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', category=RuntimeWarning)
+        warnings.simplefilter('error', category=OptimizeWarning)
+        
+        try:
+            baseline_form = lambda x, a, b, c, d: a*np.exp(-b*x) - c*x + d
+        
+            if len(signal) % n_points_min != 0:
+                min_signal = np.append(signal, np.full(n_points_min - (len(signal) % n_points_min), np.nan))
+        
+            # compute the minimum value every n points
+            min_signal = np.nanmin(np.reshape(min_signal, (-1, n_points_min)), axis=1)
+        
+            # ignore nans in fit
+            nans = np.isnan(min_signal)
+        
+            # fit curve to these minimum values
+            x = np.arange(len(min_signal))
+            params = curve_fit(baseline_form, x[~nans], min_signal[~nans])[0]
+        
+            # return full baseline of the same length as the signal
+            x = np.arange(len(signal))/n_points_min
+            return baseline_form(x, *params)
+        except OptimizeWarning:
+            print('Baseline fit was unseccessful. Expanding the signal minimum window to {}..'.format(n_points_min*2))
+            return fit_baseline(signal, n_points_min=n_points_min*2)
+    
 
 
 def build_signal_matrix(signal, ts, align_ts, pre, post, align_sel=[]):

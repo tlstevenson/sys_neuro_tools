@@ -122,7 +122,7 @@ def decimate_data(data, target_dt = None, target_sf = None, time_key = 'time', t
     first_t = np.min([t[0] for t in times])
     last_t = np.max([t[-1] for t in times])
     time_size = [len(t) for t in times]
-    time = times[np.argmax(time_size)]
+    time = times[np.argmax(time_size)].copy()
     dt = np.mean(np.diff(time))
 
     # mke sure the time array spans the entire length of time in the signals
@@ -140,7 +140,7 @@ def decimate_data(data, target_dt = None, target_sf = None, time_key = 'time', t
         signal_names = [k for k in data[name].keys() if k != time_key]
 
         for signal_name in signal_names:
-            signal_vals = data[name][signal_name]
+            signal_vals = data[name][signal_name].copy()
 
             # see if need to append NaNs onto beginning or end of signal
             if not math.isclose(time[0], signal_t[0]):
@@ -201,6 +201,6 @@ def decimate_data(data, target_dt = None, target_sf = None, time_key = 'time', t
         dec_signals = signals
         dec_time = time
 
-    dec_info = {'decimation': decimation, 'timestamp_pos': timestamp_pos, 'start_dt': dt, 'end_dt': decimation*dt}
+    dec_info = {'decimation': decimation, 'timestamp_pos': timestamp_pos, 'initial dt': dt, 'decimated dt': decimation*dt}
 
     return dec_time, dec_signals, dec_info
