@@ -128,6 +128,7 @@ def fill_missing_data(flat_data, time_key = 'time'):
         Returns the corrected data and a description of any issues that were found '''
 
     issues = []
+    #skipped_idxs = {}
 
     # check timstamps for any skipped information
     for name in flat_data.keys():
@@ -140,6 +141,8 @@ def fill_missing_data(flat_data, time_key = 'time'):
             idxs = np.where(~close)[0]+1
             # round to nearest decimal because timestamps can be off by a multiple of a step, based on the decimation
             ts_skipped = utils.convert_to_multiple(ts_diffs[~close]/dt, 0.001)-1
+            
+            #skipped_idxs[name] = {'idxs': idxs, 'skipped steps': ts_skipped}
 
             signal_names = [k for k in flat_data[name].keys() if k != time_key]
 

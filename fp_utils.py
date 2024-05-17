@@ -105,7 +105,6 @@ def fit_baseline(signal, n_points_min=100):
         except OptimizeWarning:
             print('Baseline fit was unseccessful. Expanding the signal minimum window to {}..'.format(n_points_min*2))
             return fit_baseline(signal, n_points_min=n_points_min*2)
-    
 
 
 def build_signal_matrix(signal, ts, align_ts, pre, post, align_sel=[]):
@@ -140,6 +139,9 @@ def build_signal_matrix(signal, ts, align_ts, pre, post, align_sel=[]):
     signal_mat = np.full((len(align_ts), len(t)), np.nan)
 
     for i, align_t in enumerate(align_ts):
+        
+        if align_t is None or np.isnan(align_t):
+            continue
 
         rel_ts = ts - align_t
         # find start and stop idxs of aligned signal
