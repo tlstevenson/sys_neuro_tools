@@ -201,6 +201,6 @@ def decimate_data(data, target_dt = None, target_sf = None, time_key = 'time', t
         dec_signals = signals
         dec_time = time
 
-    dec_info = {'decimation': decimation, 'timestamp_pos': timestamp_pos, 'initial dt': dt, 'decimated dt': decimation*dt}
+    dec_info = {'decimation': decimation, 'timestamp_pos': timestamp_pos, 'initial_dt': dt, 'decimated_dt': decimation*dt}
 
     return dec_time, dec_signals, dec_info
