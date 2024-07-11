@@ -35,7 +35,7 @@ def plot_shaded_error(x, y, y_err=None, ax=None, **kwargs):
                 raise ValueError('Invalid error format. Must either be 1xN or 2xN where N is number of data points in x & y')
         else:
             raise ValueError('Invalid error format. Must either be 1xN or 2xN where N is number of data points in x & y')
-            
+
         # plot error first
         upper = y + y_err_up
         lower = y - y_err_low
@@ -45,8 +45,12 @@ def plot_shaded_error(x, y, y_err=None, ax=None, **kwargs):
 
         fill = ax.fill_between(x, upper, lower, alpha=0.2, **tmp_kwargs)
         # make sure the fill is the same color as the signal line
-        c = fill.get_facecolor()
-        line = ax.plot(x, y, color=c[:, 0:3], **kwargs)
+        if 'color' in kwargs:
+            c = kwargs.pop('color')
+        else:
+            c = fill.get_facecolor()[0]
+        # ignore any alpha value in the color array
+        line = ax.plot(x, y, color=c[0:3], **kwargs)
     else:
         # just plot signal
         line = ax.plot(x, y, **kwargs)
@@ -124,14 +128,14 @@ def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation=
         if len(x_labels) != len(values_list[0]):
             raise ValueError('The number of x labels ({0}) does not match the number of elements being plotted ({1})'.format(
                 len(x_labels), len(values_list[0])))
-            
+
     if err is None:
         err = np.full(n_cats, None)
     else:
         if len(err) != n_cats:
             raise ValueError('The number of y errors ({0}) does not match the number of plot categories ({1})'.format(
                 len(err), n_cats))
-            
+
 
     x = np.arange(len(x_labels))
 
@@ -158,6 +162,52 @@ def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation=
 
     ax.legend()
 
+
+def plot_grouped_error_bar(values_list, error_list, value_labels=None, x_labels=None, ax=None):
+
+    if ax is None:
+        ax = get_axes()
+
+    # get number of data categories to plot
+    n_cats = len(values_list)
+
+    # process inputs
+    if not all([len(values_list[0]) == len(values_list[i]) for i in range(1, n_cats)]):
+        raise ValueError('The number of values to be plotted in each series are not equal')
+
+    if not all([len(error_list[0]) == len(error_list[i]) for i in range(1, n_cats)]):
+        raise ValueError('The number of errors to be plotted in each series are not equal')
+
+    if not len(values_list[0]) == len(error_list[0]):
+        raise ValueError('The number of values and errors to be plotted in each series are not equal')
+
+    if value_labels is None:
+        value_labels = ['' for i in range(n_cats)]
+    else:
+        if len(value_labels) != n_cats:
+            raise ValueError('The number of value labels ({0}) does not match the number of plot categories ({1})'.format(
+                len(value_labels), n_cats))
+
+    if x_labels is None:
+        x_labels = [i for i in range(values_list[0])]
+    else:
+        if len(x_labels) != len(values_list[0]):
+            raise ValueError('The number of x labels ({0}) does not match the number of elements being plotted ({1})'.format(
+                len(x_labels), len(values_list[0])))
+
+    x = np.arange(len(x_labels))
+
+    # determine offset of each grouped point
+    x_offset = 1/(n_cats+1)
+
+    for i in range(n_cats):
+        ax.errorbar(x + x_offset*i, values_list[i], yerr=error_list[i], label=value_labels[i], fmt='o', capsize=4)
+
+    ax.set_xticks(x + x_offset*(n_cats-1)/2, x_labels)
+
+    ax.legend()
+
+
 def plot_value_matrix(values, ax=None, x_rot=0, y_rot=0, fmt='.3f', cbar=True, **kwargs):
     ''' Plot a heatmap of the given values '''
     if ax is None:
@@ -166,7 +216,7 @@ def plot_value_matrix(values, ax=None, x_rot=0, y_rot=0, fmt='.3f', cbar=True, *
     # make sure any pandas tables have numeric values
     if type(values) is pd.DataFrame:
         values = values.infer_objects()
-    
+
     # plot the heatmap
     hm = sb.heatmap(values, annot=(fmt != None), fmt=fmt, ax=ax, linewidth=1, vmin=0, vmax=1, cbar=cbar, **kwargs)
     # move x axis labels to the top
@@ -237,11 +287,11 @@ def plot_x0line(x0=None, ax=None, **kwargs):
         ax = get_axes()
 
     return plot_dashlines(vals=x0, dir='v', ax=ax, **kwargs)
-        
+
 def plot_dashlines(vals=None, dir='v', ax=None, **kwargs):
     if ax is None:
         ax = get_axes()
-        
+
     if vals is None:
         vals = [0]
     elif utils.is_scalar(vals):
@@ -252,13 +302,13 @@ def plot_dashlines(vals=None, dir='v', ax=None, **kwargs):
         if not k in kwargs:
             kwargs[k] = v
 
-    for val in vals:     
+    for val in vals:
         match dir:
             case 'v':
                 ax.axvline(val, **kwargs)
             case 'h':
                 ax.axhline(val, **kwargs)
-    
+
     return ax
 
 # Methods to autoscale an axis to a sub-view from stack overflow: https://stackoverflow.com/questions/29461608/fixing-x-axis-scale-and-autoscale-y-axis
@@ -293,7 +343,7 @@ def autoscale(ax=None, axis='y', margin=0.1):
     setlim(newlow-margin, newhigh+margin)
 
 def calculate_new_limit(fixed, dependent, limit):
-    '''Calculates the min/max of the dependent axis given 
+    '''Calculates the min/max of the dependent axis given
     a fixed axis with limits
     '''
     if len(fixed) > 2:
