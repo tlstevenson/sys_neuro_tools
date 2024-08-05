@@ -10,11 +10,33 @@ from sklearn.linear_model import LinearRegression
 from scipy.optimize import curve_fit, OptimizeWarning
 from scipy.interpolate import make_interp_spline
 import matplotlib.pyplot as plt
+from scipy.signal import butter, sosfiltfilt
 
 import warnings
 
+def filter_signal(signal, cutoff_f, sr):
+    '''
+    Low-pass filters a signal with a zero-phase butterworth filter of the given cutoff frequency
 
-def calc_iso_dff(lig_signal, iso_signal):
+    Parameters
+    ----------
+    signal : The signal to filter
+    cutoff_f : The cutoff frequency
+    sr : The sampling rate
+
+    Returns
+    -------
+    The filtered signal
+
+    '''
+
+    sos = butter(2, cutoff_f, btype='lowpass', fs=sr, output='sos')
+    denoised_signal = sosfiltfilt(sos, signal)
+
+    return denoised_signal
+
+
+def calc_iso_dff(lig_signal, iso_signal, t, vary_t=True):
     '''
     Calculates dF/F based on an isosbestic signal by regressing the isosbestic signal onto the ligand-dependent signal,
     then using this fit isosbestic signal as the baseline
@@ -31,14 +53,14 @@ def calc_iso_dff(lig_signal, iso_signal):
 
     '''
 
-    fitted_iso = fit_signal(iso_signal, lig_signal)
+    fitted_iso = fit_signal(iso_signal, lig_signal, t, vary_t)
     # calculate dF/F
     dff = ((lig_signal - fitted_iso)/fitted_iso)*100
 
     return dff, fitted_iso
 
 
-def fit_signal(signal_to_fit, signal):
+def fit_signal(signal_to_fit, signal, t, vary_t=True):
     '''
     Scales and shift one signal to match another using linear regression
 
@@ -53,22 +75,38 @@ def fit_signal(signal_to_fit, signal):
 
     '''
 
-    reg = LinearRegression()
-    # find all NaNs and drop them from both signals before regressing
+    # # find all NaNs and drop them from both signals before regressing
     nans = np.isnan(signal) | np.isnan(signal_to_fit)
+
     # fit the iso signal to the ligand signal
-    reg.fit(signal_to_fit[~nans,None], signal[~nans])
+    # reg = LinearRegression(positive=True)
+    # reg.fit(signal_to_fit[~nans,None], signal[~nans])
+    # fitted_signal = np.full_like(signal_to_fit, np.nan)
+    # fitted_signal[~nans] = reg.predict(signal_to_fit[~nans,None])
+
+    if vary_t:
+        form = lambda x, a, b, c: a*x[0,:] + b*x[1,:] + c
+        s_to_fit = np.vstack((signal_to_fit[None,~nans], t[None,~nans]))
+        bounds = ([      0, -np.inf, -np.inf],
+                  [ np.inf,  np.inf,  np.inf])
+    else:
+        form = lambda x, a, b: a*x + b
+        s_to_fit = signal_to_fit[None,~nans]
+        bounds = ([      0, -np.inf],
+                  [ np.inf,  np.inf])
+
+    params = curve_fit(form, s_to_fit, signal[~nans], bounds=bounds)[0]
     fitted_signal = np.full_like(signal_to_fit, np.nan)
-    fitted_signal[~nans] = reg.predict(signal_to_fit[~nans,None])
+    fitted_signal[~nans] = form(s_to_fit, *params)
 
     return fitted_signal
 
 
-def fit_baseline(signal, n_points_min=100, baseline_form=None):
+def fit_baseline(signal, n_points_min=10, baseline_form=None, bounds=None):
     '''
     Fits a baseline to the signal using a baseline formula equation.
-    Defaults to an exponential decay function with an additional linear term:
-        A*e^(-B*t) - C*t + D
+    Defaults to a double exponential decay function:
+        A*e^(-t/B) + C*e^(-t/(B*D)) + E
     Fits the baseline to the minimum value every n data points
 
     Parameters
@@ -82,13 +120,20 @@ def fit_baseline(signal, n_points_min=100, baseline_form=None):
 
     '''
 
-    n_points_max = 6000
+    n_points_max = 2000
 
     if n_points_min > n_points_max:
         raise RuntimeError('Could not fit baseline. Try another formula or method.')
 
+    if bounds is None:
+        if baseline_form is None:
+            bounds = ([-np.inf,      1, -np.inf, 0, -np.inf],
+                      [ np.inf, np.inf,  np.inf, 1,  np.inf])
+        else:
+            bounds = (-np.inf, np.inf)
+
     if baseline_form is None:
-        baseline_form = lambda x, a, b, c, d: a*np.exp(-b*x) - c*x + d
+        baseline_form = lambda x, a, b, c, d, e: a*np.exp(-x/b) + c*np.exp(-x/(b*d)) + e
 
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=RuntimeWarning)
@@ -106,9 +151,8 @@ def fit_baseline(signal, n_points_min=100, baseline_form=None):
             # ignore nans in fit
             nans = np.isnan(min_signal)
 
-            # fit curve to these minimum values
             x = np.arange(len(min_signal))
-            params = curve_fit(baseline_form, x[~nans], min_signal[~nans])[0]
+            params = curve_fit(baseline_form, x[~nans], min_signal[~nans], bounds=bounds)[0]
 
             # return full baseline of the same length as the signal
             x = np.arange(len(signal))/n_points_min
@@ -271,7 +315,15 @@ def build_time_norm_signal_matrix(signal, ts, start_align_ts, end_align_ts, n_bi
         rel_end_idx = np.argmin(np.abs(rel_end_ts))+2 # added 2 because indexing ignores last value
 
         # build interpolating spline
-        interp_sig = make_interp_spline(ts[rel_start_idx:rel_end_idx], signal[rel_start_idx:rel_end_idx], k=interp_deg)
+        sub_ts = ts[rel_start_idx:rel_end_idx]
+        sub_signal = signal[rel_start_idx:rel_end_idx]
+        # remove any nans
+        nan_sel = ~np.isnan(sub_signal)
+        # ignore if all timepoints are nan
+        if all(~nan_sel):
+            continue
+
+        interp_sig = make_interp_spline(sub_ts[nan_sel], sub_signal[nan_sel], k=interp_deg)
 
         # use interpolation to get values at new bin centers
         # have the new bins contain the start and end timepoints in the center of the bin
