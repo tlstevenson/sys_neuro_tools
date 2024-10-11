@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 import pyutils.utils as utils
+from scipy.signal import convolve
 import warnings
 
 
@@ -42,7 +43,7 @@ def get_trial_spike_times(spike_times, trial_start_times):
     return pd.Series(trial_spike_times)
 
 
-def get_binned_spike_counts(spike_times, start_time=0, end_time=np.inf, bin_width=5e-3):
+def get_binned_spike_counts(spike_times, start_time=0, end_time=np.inf, bin_width=5e-3, align='start'):
     '''
     Gets binned spike counts for the given spike times between the start and end time points with the given bin width
 
@@ -52,22 +53,52 @@ def get_binned_spike_counts(spike_times, start_time=0, end_time=np.inf, bin_widt
     start_time : (optional) The start time of the bins. The default is 0.
     end_time : (optional) The end time of the bins. The default is one bin width beyond the last spike time
     bin_width : (optional) The width of the bins. The default is 5e-3.
+    align : (optional) How to force alignment of bins. Either to the start or end
 
     Returns
     -------
     counts : An array of spike counts within each bin
     bin_edges : The bin edges. Will have one more element than the counts
+    sub_spike_times : The spike times that are located between the start and end times
     '''
 
     # handle default end time
     if np.isinf(end_time):
         end_time = spike_times[-1]
 
-    # make sure the end time will be included in the bins
-    bin_edges = np.arange(start_time, end_time+bin_width, bin_width)
-    counts, _ = np.histogram(spike_times, bin_edges)
+    spike_times = np.array(spike_times)
+    sub_spike_times = spike_times[(spike_times >= start_time) & (spike_times <= end_time)]
+    
+    match align:
+        case 'start':
+            # make sure the end time will be included in the last bin
+            # do this to account for rounding issues with arange
+            new_end_time = utils.convert_to_multiple(end_time-start_time, bin_width) + start_time
+            # don't do anything if the end time is just a rounding error away from the new end time
+            if ~np.isclose(end_time, new_end_time):
+                new_end_time = utils.convert_to_multiple(end_time-start_time, bin_width, direction='up') + start_time
+                
+            bin_edges = np.arange(start_time, new_end_time+bin_width, bin_width)
+            # then make sure to remove any extra bins caused by rounding errors
+            if end_time < bin_edges[-2] or np.isclose(end_time, bin_edges[-2]):
+                bin_edges = bin_edges[:-1]
 
-    return counts, bin_edges
+        case 'end':
+            # make sure the start time will be included in the first bin
+            # do this to account for rounding issues with arange
+            new_start_time = end_time - utils.convert_to_multiple(end_time-start_time, bin_width)
+            # don't do anything if the end time is just a rounding error away from the new end time
+            if ~np.isclose(start_time, new_start_time):
+                new_start_time = end_time - utils.convert_to_multiple(end_time-start_time, bin_width, direction='down')
+
+            bin_edges = np.flip(np.arange(end_time, new_start_time-bin_width, -bin_width))
+            # then make sure to remove any extra bins caused by rounding errors
+            if start_time > bin_edges[1] or np.isclose(start_time, bin_edges[1]):
+                bin_edges = bin_edges[1:]
+            
+    counts, _ = np.histogram(sub_spike_times, bin_edges)
+
+    return counts, bin_edges, sub_spike_times
 
 
 def get_filter_kernel(width=0.2, filter_type='half_gauss', bin_width=5e-3):
@@ -127,7 +158,7 @@ def get_filter_kernel(width=0.2, filter_type='half_gauss', bin_width=5e-3):
     # no filter
     elif filter_type == 'none':
         x = 0
-        weights = 1
+        weights = np.array([1])
 
     else:
         raise ValueError('Invalid filter type. Acceptable types: avg, causal_avg, gauss, half_gauss, exp, and none')
@@ -135,16 +166,17 @@ def get_filter_kernel(width=0.2, filter_type='half_gauss', bin_width=5e-3):
     return {'type': filter_type,
             'weights': weights/np.sum(weights),  # normalize sum to one
             'bin_width': bin_width,
-            'center_idx': np.where(x == 0)[0][0]}
+            'center_idx': np.where(x == 0)[0][0],
+            't': x}
 
 
-def get_smoothed_firing_rate(spike_times, kernel=None, start_time=0, end_time=np.inf):
+def get_smoothed_firing_rate(spike_times, kernel, start_time, end_time, align='start'):
     '''
     Will calculate a smoothed firing rate based on the spike times between the given start and end times
 
     Parameters
     ----------
-    spike_times : List of spike times
+    spike_times : List of spike times, or list of lists of spike times
     kernel : (optional) A kernel dictionary from get_filter_kernel. Defaults to a half-gaussian of 0.2 s
     start_time : (optional) The start time of smoothed signal. The default is 0.
     end_time : (optional) The end time of the smoothed signal. The default is the last spike time
@@ -155,36 +187,52 @@ def get_smoothed_firing_rate(spike_times, kernel=None, start_time=0, end_time=np
     time : The time values corresponding to the signal values
     '''
 
-    if kernel is None:
-        kernel = get_filter_kernel()
-
     bin_width = kernel['bin_width']
 
-    if np.isinf(end_time):
-        end_time = utils.convert_to_multiple(spike_times[-1]-start_time, bin_width) + start_time
-
     # compute buffers around the start and end times to include spikes that should be included in the filter
-    # shift them by half a bin width to make the resulting time have a value at t=0
-    pre_buff = (len(kernel['weights']) - kernel['center_idx'] - 1) * bin_width + bin_width/2
-    post_buff = kernel['center_idx'] * bin_width + bin_width/2
+    pre_buff = (len(kernel['weights']) - kernel['center_idx'] - 1) * bin_width
+    post_buff = kernel['center_idx'] * bin_width
+    
+    # return time values as the center of the time bin
+    time_bin_edges = get_binned_spike_counts([], start_time, end_time, bin_width, align=align)[1]
+    time = time_bin_edges[:-1] + bin_width/2
 
     # compute signal and smooth it with a filter
-    signal, bin_edges = get_binned_spike_counts(spike_times, start_time-pre_buff, end_time+post_buff, bin_width)
+    # determine if we need to convolve multiple trials at once
+    if len(spike_times) > 0 and utils.is_list(spike_times[0]):
+        signal = np.vstack([get_binned_spike_counts(times, start_time-pre_buff, end_time+post_buff, bin_width, align=align)[0][None,:] for times in spike_times])
+        kernel_weights = kernel['weights'][None,:]
+    else:
+        signal = get_binned_spike_counts(spike_times, start_time-pre_buff, end_time+post_buff, bin_width, align=align)[0]
+        kernel_weights = kernel['weights']
+        
     signal = signal/bin_width
-    signal = np.convolve(signal, kernel['weights'])
-    # signal = convolve(signal, kernel['weights']) # scipy version might be faster, need to check
+    signal = convolve(signal, kernel_weights)
 
     # remove extra bins created from filtering
     filter_pre_cutoff = len(kernel['weights']) - 1
     filter_post_cutoff = len(kernel['weights']) - 1
-    signal = signal[filter_pre_cutoff:-filter_post_cutoff]
-
-    time = np.arange(start_time, end_time+bin_width, bin_width)
-
+    if signal.ndim > 1:
+        if filter_post_cutoff > 0:
+            signal = signal[:, filter_pre_cutoff:-filter_post_cutoff]
+        else:
+            signal = signal[:, filter_pre_cutoff:]
+            
+        if signal.shape[1] != len(time):
+            print('Mismatched dimensions found for smoothed signal and time')
+    else:
+        if filter_post_cutoff > 0:
+            signal = signal[filter_pre_cutoff:-filter_post_cutoff]
+        else:
+            signal = signal[filter_pre_cutoff:]
+            
+        if len(signal) != len(time):
+            print('Mismatched dimensions found for smoothed signal and time')
+    
     return signal, time
 
 
-def get_psth(spike_times, align_times, window, kernel=None, mask_bounds=None):
+def get_psth(spike_times, align_times, window, kernel=None, mask_bounds=None, align='start'):
     '''
     Will calculate a peri-stimulus time histogram (PSTH) of the average firing rate aligned to the specified alignment points
 
@@ -255,7 +303,7 @@ def get_psth(spike_times, align_times, window, kernel=None, mask_bounds=None):
 
     ## Perform aligning and smoothing ##
 
-    _, time = get_smoothed_firing_rate([], kernel, window[0], window[1])
+    _, time = get_smoothed_firing_rate([], kernel, window[0], window[1], align=align)
 
     if has_mask:
         time_bin_edges = np.append(time - kernel['bin_width']/2, time[-1] + kernel['bin_width']/2)
@@ -292,8 +340,8 @@ def get_psth(spike_times, align_times, window, kernel=None, mask_bounds=None):
                     continue
 
             offset_ts = trial_spike_times - align_ts
-            signal, _ = get_smoothed_firing_rate(offset_ts, kernel, window[0], window[1])
-            signal_spikes = offset_ts[np.logical_and(offset_ts > window[0], offset_ts < window[1])]
+            signal, _ = get_smoothed_firing_rate(offset_ts, kernel, window[0], window[1], align=align)
+            signal_spikes = offset_ts[(offset_ts > window[0]) & (offset_ts < window[1])]
 
             # mask the signal
             if has_mask:
@@ -302,7 +350,10 @@ def get_psth(spike_times, align_times, window, kernel=None, mask_bounds=None):
                 mask_start = align_mask[0] - align_ts
                 mask_end = align_mask[1] - align_ts
                 mask_start_idx = np.argmax(time_bin_edges > mask_start)
-                mask_end_idx = np.argmax(time_bin_edges > mask_end) - 1
+                if any(time_bin_edges > mask_end):
+                    mask_end_idx = np.argmax(time_bin_edges > mask_end) - 1
+                else:
+                    mask_end_idx = len(signal)
 
                 # mask with nans
                 if mask_start_idx > 0:
@@ -329,7 +380,7 @@ def get_psth(spike_times, align_times, window, kernel=None, mask_bounds=None):
                 'aligned_spikes': aligned_spikes}
 
 
-def get_fr_matrix_by_trial(spike_ts, trial_start_ts, kernel=None, trial_bounds=None, trial_select=None):
+def get_fr_matrix_by_trial(spike_ts, trial_start_ts, kernel=None, trial_bounds=None, trial_select=None, align='start'):
     '''
     Takes a list of spike times for each unit in a single session along with the trial start timestamps
     and outputs a pandas series of smoothed firing rate matrices for all units (T timesteps x N units)
@@ -349,6 +400,13 @@ def get_fr_matrix_by_trial(spike_ts, trial_start_ts, kernel=None, trial_bounds=N
     '''
 
     n_trials = len(trial_start_ts)
+    
+    if isinstance(spike_ts, pd.Series):
+        spike_ts = spike_ts.to_numpy()
+    
+    # make a list of lists for ease of use in the loop below
+    if not len(spike_ts) > 0 or not utils.is_list(spike_ts[0]):
+        spike_ts = [spike_ts]
 
     if trial_bounds is None:
         # compute the ends of the trials as the beginning of the next trial
@@ -380,12 +438,70 @@ def get_fr_matrix_by_trial(spike_ts, trial_start_ts, kernel=None, trial_bounds=N
         if len(trial_select) != n_trials:
             raise ValueError('The number of trial selects ({0}) does not match the number of trials ({1})'.format(
                 len(trial_select), n_trials))
+    
+    # make sure select is a numpy array
+    trial_select = np.array(trial_select)
 
-    # go through trials and build each matrix of smoothed firing rates
-    frs_by_trial = [np.array([get_smoothed_firing_rate(spike_ts[j] - trial_start_ts[i], kernel, trial_bounds[i, 0], trial_bounds[i, 1])[0]
-                              for j in range(len(spike_ts))]).T
-                    for i in range(n_trials) if trial_select[i]]
+    # go through trials and build each matrix of smoothed firing rates aligned to trial start
+    frs_by_trial = []
+    time_by_trial = []
+    for i in range(n_trials):
+        if trial_select[i]:
+            # get all unit spike times relative to start of trial
+            trial_spikes = [ts - trial_start_ts[i] for ts in spike_ts]
+            fr, t = get_smoothed_firing_rate(trial_spikes, kernel, trial_bounds[i, 0], trial_bounds[i, 1], align=align)
+            frs_by_trial.append(fr.T)
+            time_by_trial.append(t)
 
-    frs_by_trial = pd.Series(frs_by_trial)
+    # make a pandas series because making a np array throws an error because of inhomogeneous shapes
+    return pd.Series(frs_by_trial), pd.Series(time_by_trial)
 
-    return frs_by_trial
+def get_avg_period_fr(spike_ts, period_bounds, period_select=None):
+    '''
+    Takes a list of spike times for each unit in a single session along with time period bounds and computes 
+    the average firing rate within the bounds. Outputs a pandas series of average firing rate per unit.
+
+    Parameters
+    ----------
+    spike_ts : A list of spike timestamps for each unit in the session
+    period_bounds : The bounds defining the period to calculate average firing rate over
+
+    Returns
+    -------
+    Returns a pandas series of period average firing rates for all units
+    '''
+    
+    if isinstance(period_bounds, pd.DataFrame):
+        period_bounds = period_bounds.to_numpy()
+
+    # check dimensions on the period bounds
+    if isinstance(period_bounds, np.ndarray):
+        # check there is a start and end to the mask
+        if period_bounds.shape[1] != 2:
+            raise ValueError('The trial bounds must have start and end times in separate columns. Instead found {0} columns.'.format(
+                period_bounds.shape[1]))
+            
+    n_periods = period_bounds.shape[0]
+    n_units = len(spike_ts)
+            
+    # handle the trial select
+    if period_select is None:
+        period_select = [True] * n_periods
+    else:
+        # check the number of trials matches up
+        if len(period_select) != n_periods:
+            raise ValueError('The number of perios selects ({0}) does not match the number of periods ({1})'.format(
+                len(period_select), n_periods))
+            
+    # make sure select is a numpy array
+    period_select = np.array(period_select)
+
+    period_durs = np.diff(period_bounds[period_select,:], axis=1)
+    spike_counts = np.zeros((n_units, np.sum(period_select)))
+        
+    for i, spikes in enumerate(spike_ts):
+        spike_counts[i, :] = np.array([np.nansum((spikes > period_bounds[j,0]) & (spikes < period_bounds[j,1])) for j in range(n_periods) if period_select[j]])
+        
+    avg_fr = np.nansum(spike_counts, axis=1)/np.nansum(period_durs)
+
+    return avg_fr

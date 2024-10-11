@@ -6,6 +6,7 @@ Created on Wed Dec 20 22:33:47 2023
 """
 
 import numpy as np
+import pandas as pd
 from sklearn.linear_model import LinearRegression
 from scipy.optimize import curve_fit, OptimizeWarning
 from scipy.interpolate import make_interp_spline
@@ -14,15 +15,19 @@ from scipy.signal import butter, sosfiltfilt
 
 import warnings
 
-def filter_signal(signal, cutoff_f, sr):
+def fill_signal_nans(signal, order=2):
+    return pd.Series(signal).interpolate(method='spline', order=order, limit_direction='both').to_numpy()
+
+def filter_signal(signal, cutoff_f, sr, filter_type='lowpass'):
     '''
     Low-pass filters a signal with a zero-phase butterworth filter of the given cutoff frequency
 
     Parameters
     ----------
     signal : The signal to filter
-    cutoff_f : The cutoff frequency
+    cutoff_f : The cutoff frequency(s)
     sr : The sampling rate
+    filter_type : 'lowpass', 'highpass', 'bandpass', 'bandstop'
 
     Returns
     -------
@@ -30,8 +35,18 @@ def filter_signal(signal, cutoff_f, sr):
 
     '''
 
-    sos = butter(2, cutoff_f, btype='lowpass', fs=sr, output='sos')
+    # handle nan values so the filtering works correctly
+    # Since we don't want to just remove the nans, first interpolate them, filter, then add them back in
+    nans = np.isnan(signal)
+
+    if any(nans):
+        signal = fill_signal_nans(signal)
+
+    sos = butter(2, cutoff_f, btype=filter_type, fs=sr, output='sos')
     denoised_signal = sosfiltfilt(sos, signal)
+
+    if any(nans):
+        denoised_signal[nans] = np.nan
 
     return denoised_signal
 
@@ -127,7 +142,7 @@ def fit_baseline(signal, n_points_min=10, baseline_form=None, bounds=None):
 
     if bounds is None:
         if baseline_form is None:
-            bounds = ([-np.inf,      1, -np.inf, 0, -np.inf],
+            bounds = ([-np.inf,      0, -np.inf, 0, -np.inf],
                       [ np.inf, np.inf,  np.inf, 1,  np.inf])
         else:
             bounds = (-np.inf, np.inf)
@@ -162,7 +177,7 @@ def fit_baseline(signal, n_points_min=10, baseline_form=None, bounds=None):
             return fit_baseline(signal, n_points_min=n_points_min*2, baseline_form=baseline_form)
 
 
-def build_signal_matrix(signal, ts, align_ts, pre, post, align_sel=[]):
+def build_signal_matrix(signal, ts, align_ts, pre, post, align_sel=[], mask_lims=None):
     '''
     Build a matrix of signals aligned to the specified timestamp with the given window
 
@@ -174,6 +189,7 @@ def build_signal_matrix(signal, ts, align_ts, pre, post, align_sel=[]):
     pre : The time pre alignment point to show
     post : The time post alignment point to show
     align_sel : Boolean selection of alignment points, optional
+    mask_lims : Trial-by-trial limits to mask the signal beyond (Nx2 array for N alignment points)
 
     Returns
     -------
@@ -184,6 +200,9 @@ def build_signal_matrix(signal, ts, align_ts, pre, post, align_sel=[]):
 
     if len(align_sel) > 0:
         align_ts = align_ts[align_sel]
+
+    if not mask_lims is None and not len(mask_lims) == 0:
+        mask_lims = np.array(mask_lims)
 
     dt = np.mean(np.diff(ts))
     t = np.arange(-pre, post+dt, dt)
@@ -202,11 +221,19 @@ def build_signal_matrix(signal, ts, align_ts, pre, post, align_sel=[]):
         # find start and stop idxs of aligned signal
         rel_center_idx = np.argmin(np.abs(rel_ts))
 
-        # ignore alignments with windows that extend beyond the signal
-        if rel_center_idx - pre_idxs < 0 or rel_center_idx + post_idxs > len(signal):
-            continue
+        # handle alignments with windows that extend beyond the signal
+        if rel_center_idx - pre_idxs < 0:
+            align_sig = np.concatenate([np.full(pre_idxs - rel_center_idx, np.nan), signal[:rel_center_idx + post_idxs].copy()])
+        elif rel_center_idx + post_idxs > len(signal):
+            align_sig = np.concatenate([signal[rel_center_idx - pre_idxs:].copy(), np.full(post_idxs - len(signal) + rel_center_idx, np.nan)])
+        else:
+            align_sig = signal[rel_center_idx - pre_idxs : rel_center_idx + post_idxs].copy()
 
-        signal_mat[i,:] = signal[rel_center_idx - pre_idxs : rel_center_idx + post_idxs]
+        if not mask_lims is None:
+            rel_mask_lim = mask_lims[i,:] - align_t
+            align_sig[(t < rel_mask_lim[0]) | (t > rel_mask_lim[1])] = np.nan
+
+        signal_mat[i,:] = align_sig
 
     return signal_mat, t
 

@@ -49,15 +49,17 @@ def plot_shaded_error(x, y, y_err=None, ax=None, **kwargs):
             c = kwargs.pop('color')
         else:
             c = fill.get_facecolor()[0]
+            c = c[0:3]
+        
         # ignore any alpha value in the color array
-        line = ax.plot(x, y, color=c[0:3], **kwargs)
+        line = ax.plot(x, y, color=c, **kwargs)
     else:
         # just plot signal
         line = ax.plot(x, y, **kwargs)
 
     return line, ax
 
-def plot_psth(signal, time, error=None, ax=None, plot_x0=True, **kwargs):
+def plot_psth(time, signal, error=None, ax=None, plot_x0=True, **kwargs):
 
     if ax is None:
         ax = get_axes()
@@ -71,7 +73,7 @@ def plot_psth(signal, time, error=None, ax=None, plot_x0=True, **kwargs):
 
 def plot_psth_dict(psth_dict, ax=None, plot_x0=True, **kwargs):
 
-    return plot_psth(psth_dict['signal_avg'], psth_dict['time'], psth_dict['signal_se'], ax, plot_x0, **kwargs)
+    return plot_psth(psth_dict['time'], psth_dict['signal_avg'], psth_dict['signal_se'], ax, plot_x0, **kwargs)
 
 
 def plot_raster(spike_times, ax=None, plot_x0=True):
@@ -230,7 +232,7 @@ def plot_value_matrix(values, ax=None, x_rot=0, y_rot=0, fmt='.3f', cbar=True, *
 
     return hm, ax
 
-def plot_stacked_heatmap_avg(data_mat, t, heatmap_ax, avg_ax, x_label='', y_label='', title='',
+def plot_stacked_heatmap_avg(data_mat, t, heatmap_ax=None, avg_ax=None, x_label='', y_label='', title='',
                              show_cbar=True, error_type='std', cmap=None, vmax=None, vmin=None, **kwargs):
     ''' Plots a heatmap of the data matrix along with an average signal trace '''
 
@@ -244,6 +246,11 @@ def plot_stacked_heatmap_avg(data_mat, t, heatmap_ax, avg_ax, x_label='', y_labe
             err = None
         case _:
             raise ValueError('Incorrect error type specified: {}. Possible error types: std, se, none.'.format(error_type))
+
+    if heatmap_ax is None or avg_ax is None:
+        _, axs = plt.subplots(2, 1, layout='constrained', height_ratios=(1.5,1))
+        heatmap_ax = axs[0]
+        avg_ax = axs[1]
 
     line = plot_psth(np.nanmean(data_mat, axis=0), t, err, avg_ax, **kwargs)
     avg_ax.set_xlabel(x_label)
