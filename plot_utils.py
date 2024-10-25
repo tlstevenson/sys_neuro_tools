@@ -57,7 +57,7 @@ def plot_shaded_error(x, y, y_err=None, ax=None, **kwargs):
         # just plot signal
         line = ax.plot(x, y, **kwargs)
 
-    return line, ax
+    return line[0], ax
 
 def plot_psth(time, signal, error=None, ax=None, plot_x0=True, **kwargs):
 
@@ -317,6 +317,20 @@ def plot_dashlines(vals=None, dir='v', ax=None, **kwargs):
                 ax.axhline(val, **kwargs)
 
     return ax
+
+
+def show_axis_labels(ax, axis='y'):
+    if axis == 'y':
+        ax.yaxis.set_tick_params(which='both', labelleft=True)
+    else:
+        ax.xaxis.set_tick_params(which='both', labelleft=True)
+        
+        
+def transform_axes_to_data(x, y, ax):
+    return ax.transLimits.inverted().transform((x,y))
+
+def transform_data_to_axes(x, y, ax):
+    return ax.transLimits.transform((x,y))
 
 # Methods to autoscale an axis to a sub-view from stack overflow: https://stackoverflow.com/questions/29461608/fixing-x-axis-scale-and-autoscale-y-axis
 def autoscale(ax=None, axis='y', margin=0.1):
