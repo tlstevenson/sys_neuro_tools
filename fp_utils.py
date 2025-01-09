@@ -16,7 +16,8 @@ from scipy.signal import butter, sosfiltfilt
 import warnings
 
 def fill_signal_nans(signal, order=2):
-    return pd.Series(signal).interpolate(method='spline', order=order, limit_direction='both').to_numpy()
+    nan_idxs = np.isnan(signal)
+    return pd.Series(signal).interpolate(method='spline', order=order, limit_direction='both').to_numpy(), nan_idxs
 
 def filter_signal(signal, cutoff_f, sr, filter_type='lowpass'):
     '''
@@ -40,7 +41,7 @@ def filter_signal(signal, cutoff_f, sr, filter_type='lowpass'):
     nans = np.isnan(signal)
 
     if any(nans):
-        signal = fill_signal_nans(signal)
+        signal, _ = fill_signal_nans(signal)
 
     sos = butter(2, cutoff_f, btype=filter_type, fs=sr, output='sos')
     denoised_signal = sosfiltfilt(sos, signal)
