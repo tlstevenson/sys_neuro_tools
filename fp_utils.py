@@ -106,7 +106,7 @@ def fit_signal(signal_to_fit, signal, t, vary_t=True):
                   [ np.inf,  np.inf,  np.inf])
     else:
         form = lambda x, a, b: a*x + b
-        s_to_fit = signal_to_fit[None,~nans]
+        s_to_fit = signal_to_fit   # changed from this on Feb27'25 as it seems like 1D array is needed. s_to_fit = signal_to_fit[None,~nans]
         bounds = ([      0, -np.inf],
                   [ np.inf,  np.inf])
 
@@ -114,7 +114,8 @@ def fit_signal(signal_to_fit, signal, t, vary_t=True):
     fitted_signal = np.full_like(signal_to_fit, np.nan)
     fitted_signal[~nans] = form(s_to_fit, *params)
 
-    return fitted_signal
+    return fitted_signal, {'params': params, 'formula': form}
+
 
 
 def fit_baseline(signal, n_points_min=10, baseline_form=None, bounds=None):
@@ -171,7 +172,8 @@ def fit_baseline(signal, n_points_min=10, baseline_form=None, bounds=None):
 
             # return full baseline of the same length as the signal
             x = np.arange(len(signal))/n_points_min
-            return baseline_form(x, *params)
+            return baseline_form(x, *params), {'params': params, 'formula': baseline_form}
+        
         except (OptimizeWarning, RuntimeError):
             print('Baseline fit was unseccessful. Expanding the signal minimum window to {}..'.format(n_points_min*2))
             return fit_baseline(signal, n_points_min=n_points_min*2, baseline_form=baseline_form)
