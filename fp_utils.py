@@ -17,7 +17,7 @@ import warnings
 
 def fill_signal_nans(signal, order=2):
     nan_idxs = np.isnan(signal)
-    return pd.Series(signal).interpolate(method='spline', order=order, limit_direction='both').to_numpy(), nan_idxs
+    return pd.Series(signal).interpolate(method='spline', order=order, limit_direction='both').to_numpy().copy(), nan_idxs
 
 def filter_signal(signal, cutoff_f, sr, filter_type='lowpass'):
     '''
@@ -107,7 +107,7 @@ def fit_signal(signal_to_fit, signal, t, vary_t=True):
                   [ np.inf,  np.inf,  np.inf])
     else:
         form = lambda x, a, b: a*x + b
-        s_to_fit = signal_to_fit   # changed from this on Feb27'25 as it seems like 1D array is needed. s_to_fit = signal_to_fit[None,~nans]
+        s_to_fit = signal_to_fit[~nans]
         bounds = ([      0, -np.inf],
                   [ np.inf,  np.inf])
 

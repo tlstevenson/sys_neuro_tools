@@ -118,7 +118,7 @@ def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation=
         raise ValueError('The number of values to be plotted in each series are not equal')
 
     if value_labels is None:
-        value_labels = ['' for i in range(n_cats)]
+        value_labels = ['_' for i in range(n_cats)]
     else:
         if len(value_labels) != n_cats:
             raise ValueError('The number of value labels ({0}) does not match the number of plot categories ({1})'.format(
@@ -150,19 +150,24 @@ def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation=
             ax.bar(x + width*i, values_list[i], width=width, label=value_labels[i], yerr=err[i])
 
         ax.set_xticks(x + width*(n_cats-1)/2, x_labels)
+        
+        ax.set_xlim(-width, x[-1]+width*n_cats)
     # else stack bars vertically
     else:
         y_start = np.zeros_like(x)
+        width = 0.75
 
         for i in range(n_cats):
             vals = np.array(values_list[i])
             vals[np.isnan(vals)] = 0
-            ax.bar(x, vals, width=0.75, label=value_labels[i], bottom=y_start, yerr=err[i])
+            ax.bar(x, vals, width=width, label=value_labels[i], bottom=y_start, yerr=err[i])
             y_start = y_start + vals
 
         ax.set_xticks(x, x_labels)
+        ax.set_xlim(-width, x[-1]+width)
 
-    ax.legend()
+    if any([not l.startswith('_') for l in value_labels]):
+        ax.legend()
 
 
 def plot_grouped_error_bar(values_list, error_list, value_labels=None, x_labels=None, ax=None):
@@ -294,6 +299,23 @@ def plot_x0line(x0=None, ax=None, **kwargs):
         ax = get_axes()
 
     return plot_dashlines(vals=x0, dir='v', ax=ax, **kwargs)
+
+def plot_unity_line(ax, **kwargs):
+    ''' Plots the unity line y=x '''
+    
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+    
+    # Define the range for y = x (taking min/max to avoid clipping)
+    line_min = min(xmin, ymin)
+    line_max = max(xmax, ymax)
+    
+    default_vals = dict(dashes=[4,4], c='grey', lw=1)
+    for k,v in default_vals.items():
+        if not k in kwargs:
+            kwargs[k] = v
+    
+    ax.plot([line_min, line_max], [line_min, line_max], **kwargs)
 
 def plot_dashlines(vals=None, dir='v', ax=None, **kwargs):
     if ax is None:
