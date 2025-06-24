@@ -36,23 +36,22 @@ def plot_shaded_error(x, y, y_err=None, ax=None, **kwargs):
         else:
             raise ValueError('Invalid error format. Must either be 1xN or 2xN where N is number of data points in x & y')
 
-        # plot error first
-        upper = y + y_err_up
-        lower = y - y_err_low
+        line = ax.plot(x, y, zorder=2, **kwargs)
+        
+        # make sure the fill is the same color as the signal line
         # don't include the error in the legend
         tmp_kwargs = kwargs.copy()
+        if 'color' in tmp_kwargs:
+            _ = tmp_kwargs.pop('color')
+
+        # make sure the fill doesn't show up in the legend
         tmp_kwargs['label'] = '_'
 
-        fill = ax.fill_between(x, upper, lower, alpha=0.2, **tmp_kwargs)
-        # make sure the fill is the same color as the signal line
-        if 'color' in kwargs:
-            c = kwargs.pop('color')
-        else:
-            c = fill.get_facecolor()[0]
-            c = c[0:3]
+        upper = y + y_err_up
+        lower = y - y_err_low
         
-        # ignore any alpha value in the color array
-        line = ax.plot(x, y, color=c, **kwargs)
+        ax.fill_between(x, upper, lower, alpha=0.2, color=line[0].get_color(), zorder=1, **tmp_kwargs)
+
     else:
         # just plot signal
         line = ax.plot(x, y, **kwargs)
