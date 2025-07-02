@@ -6,6 +6,7 @@ Created on Mon Jun 30 11:43:48 2025
 @author: alex
 """
 
+#Added spyder kernel package and PyQt5 package to allow it to work
 import sys
 import keypoint_moseq as kpms
 import matplotlib.pyplot as plt
@@ -50,10 +51,11 @@ coordinates, confidences, bodyparts = kpms.load_keypoints(filepath_pattern=sleap
 data, metadata = kpms.format_data(coordinates, confidences, **config())
 
 #may need a seperate cell
+%matplotlib widget
 kpms.noise_calibration(project_dir, coordinates, confidences, **config(), video_extension="mp4")
 
 #plt.close('all')
-#%matplotlib inline
+%matplotlib inline
 #Fit PCA Model
 pca = kpms.fit_pca(**data, **config())
 kpms.save_pca(pca, project_dir)

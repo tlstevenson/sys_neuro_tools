@@ -29,6 +29,6 @@ def RunInference(vid_path, centroid_path, centered_path, write_path):
 
     # Predict on the array.
     predictions = predictor.predict(imgs)
-    predictions.export(write_path)
+    #predictions.export(write_path)
     
     
