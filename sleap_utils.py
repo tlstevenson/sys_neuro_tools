@@ -54,11 +54,11 @@ def update_sleap_settings(path=None, new_model = False, change_python_loc = Fals
             if model_type == "1":
                 print("Select Single Instance Model Parent Directory")
                 data["single_path"] =  fsu.GetDirectory("Select Single Instance Model Parent Directory")
-                data["centroid_path"] = "None"
-                data["center_path"] = "None"
+                data["centroid_path"] = "NoFile"
+                data["center_path"] = "NoFile"
             else:
                 #Print because directory dialogues dont have titles
-                data["single_path"] =  "None"
+                data["single_path"] =  "NoFile"
                 print("Select the Centroid Model Parent Directory")
                 data["centroid_path"] = fsu.GetDirectory("Select the Centroid Model Parent Directory")
                 print("Select the Center Model Parent Directory")

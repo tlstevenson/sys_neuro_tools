@@ -8,6 +8,7 @@ Created on Mon Jun 16 12:48:46 2025
 #activate sleap before running
 import sys
 import sleap 
+import json
     
 #sys_neuro_tools
 def RunInference(vid_path, single_path, centroid_path, centered_path, write_path):
@@ -21,7 +22,7 @@ def RunInference(vid_path, single_path, centroid_path, centered_path, write_path
     centered_path: location of the directory containing center model
     write_path: location to save the analysis file'''
     predictor = None
-    if single_path != "None":
+    if single_path != "NoFile":
         predictor = sleap.load_model([single_path], batch_size=16)
     else:
         predictor = sleap.load_model([centroid_path, centered_path], batch_size=16)
@@ -38,11 +39,12 @@ def RunInference(vid_path, single_path, centroid_path, centered_path, write_path
 
 sleap_settings_path = sys.argv[1]
 with open(sleap_settings_path, "r") as file:
-    vid_path = file["vid_path"]
-    single_path = file["single_path"]
-    centroid_path = file["centroid_path"]
-    centered_path = file["centered_path"]
-    write_path = file["write_path"]
+    sleap_settings = json.load(file)
+    vid_path = sleap_settings["vid_path"]
+    single_path = sleap_settings["single_path"]
+    centroid_path = sleap_settings["centroid_path"]
+    centered_path = sleap_settings["center_path"]
+    write_path = sleap_settings["write_dir"]
     RunInference(vid_path, single_path, centroid_path, centered_path, write_path)
 """vid_path = sys.argv[1]
 single_path = sys.argv[2]
