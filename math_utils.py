@@ -48,7 +48,6 @@ def BasisChangeMatrix(basis1, basis2):
 
 def RotationMatrix(original_x_vect, new_x_vect):
     #Check to see if over or un
-    print("Hi")
     cross_product = original_x_vect[0]*new_x_vect[1]-original_x_vect[1]*new_x_vect[0]
     #+ is rotated counterclockwise (Corrected clockwise to local)
     #- is rotated clockwise (Corrected counterclockise to local)
@@ -71,7 +70,7 @@ def GetDiff(vect, plot=False):
     vect_diff: an array of differences between values (one less entry than vect)'''
     #Reshapes vect if it has a second dimension of one
     vect=np.reshape(vect, (np.shape(vect)[0],))
-    print(np.shape(vect))
+    #print(np.shape(vect))
     #Removes nan by interpolation
     vect = pd.Series(vect)
     vect = vect.interpolate(method='linear')

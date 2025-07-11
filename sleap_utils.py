@@ -108,21 +108,21 @@ def NodePositionsLocal(frame, processed_dict, origin_node="body", basis_node="ne
     #get the positions of the body, neck
     origin_idx = processed_dict["node_names"].index(origin_node)
     basis_idx = processed_dict["node_names"].index(basis_node)
-    p_origin = frame[origin_idx]
-    p_basis = frame[basis_idx]
+    p_origin = np.array(frame[origin_idx])
+    p_basis = np.array(frame[basis_idx])
     #Create basis vectors
     b1 = np.subtract(p_basis, p_origin)
     b2 = np.array([b1[1], -b1[0]]) 
     for n in range(len(frame)): 
         #Format the position to allow matrix multiplication
-        v = np.append(frame[n], 1)
-        v = np.reshape(v, (3, 1))
-        centered_pos = np.dot(math_utils.TranslationMatrix(p_origin, inverted=True), v)
-        print((centered_pos + p_origin)[1] == frame[n][1])
+        #v = np.append(frame[n], 1)
+        #v = np.reshape(v, (3, 1))
+        centered_pos = frame[n] - p_origin
+        #print((centered_pos + p_origin)[1] == frame[n][1])
         original_rot = math_utils.RotationMatrix(np.array([1,0]), b1)
         reformat_rot_matrix = np.reshape(original_rot, (original_rot.shape[0], original_rot.shape[1]))
         new_pos = np.dot(reformat_rot_matrix, centered_pos)
-        local_locations[n][:] = np.reshape(new_pos, (2,1))
+        local_locations[n][:] = np.squeeze(new_pos)
     return local_locations
 
 def AngleToPorts(frame, processed_dict, port_pos_list):
@@ -224,23 +224,35 @@ def PlotPorts(port_pos_list):
         port_pos = port_pos_list[:,c_idx]
         plt.scatter(port_pos[0], port_pos[1], label=f"port {c_idx + 1}")
         
-def PlotSkeleton(frame, processed_dict):
+def PlotSkeleton(frame, processed_dict, skeleton_color="black", nodes_mark=[], ax=None):
     '''Uses processed dict from process_hdf5_data to visualize the skeleton
     in matplotlib figure. DOES NOT SHOW GRAPH AUTOMATICALLY (use plt.show()).
     ---
     Params: 
     frame: the current frame in the video that needs to be plotted
     processed_dict: result of processing hdf5 file
-    port1: position of top port
-    port2: position of middle port
-    port3: position of bottom port
+    skeleton_color: color of the edges
+    nodes_mark: boolean mask for which nodes may be outliers
     ---
     Returns: None
     '''
     plt.gca().invert_yaxis() #Images have 0,0 at top left and positive down
     for node_idx in range(len(frame)):
-        plt.scatter(frame[node_idx,0], frame[node_idx,1], label=processed_dict["node_names"][node_idx])
-        plt.legend()
+        if len(nodes_mark) != 0  and nodes_mark[node_idx] == 1:
+            node_color="red"
+        else:
+            node_color=skeleton_color
+        if ax != None:
+            ax.scatter(frame[node_idx,0], frame[node_idx,1], color=node_color)
+        else:
+            plt.scatter(frame[node_idx,0], frame[node_idx,1], color=node_color)
+        offset_x=20
+        if skeleton_color == "black" or ((skeleton_color=="green") and (nodes_mark[node_idx] == 1)):
+            if ax != None:
+                ax.text(frame[node_idx,0]+offset_x, frame[node_idx,1],processed_dict["node_names"][node_idx])
+            else:
+                plt.text(frame[node_idx,0]+offset_x, frame[node_idx,1],processed_dict["node_names"][node_idx])
+        #plt.legend()
 
     for edge_ind in processed_dict["edge_inds"]:
         #Get the first and second indices and use them to get the x position
@@ -248,7 +260,10 @@ def PlotSkeleton(frame, processed_dict):
         #Get the first and second indices and use them to get the y position
         y = [frame[edge_ind[0]][1], frame[edge_ind[1]][1]]
         #Plot the current edge
-        plt.plot(x, y, color = "black")
+        if ax != None:
+            ax.plot(x,y,color=skeleton_color)
+        else:
+            plt.plot(x, y, color = skeleton_color)
 
 def PlotLocalPosNode(processed_dict, node_name, local_pos_list):
     print(np.shape(local_pos_list[:,processed_dict["node_names"].index(node_name)]))
@@ -297,7 +312,6 @@ def process_hdf5_data(filename):
         
         frame_count, node_count, _, instance_count = locations.shape
 
-        
         return {'locations_shape': locations.shape, 
                 'node_names': node_names, 
                 'dset_names': dset_names, 
@@ -329,8 +343,8 @@ def LocationToDataframe(locations_data, node_names):
         for n in range(len(locations_data[frame_idx])):
             #print(locations_data[frame_idx][n][0])
             #print(locations_data[frame_idx,n,0,:])
-            row_data[2*n] = float(locations_data[frame_idx,n,0,0])
-            row_data[2*n+1] = float(locations_data[frame_idx,n,1,0])
+            row_data[2*n] = float(locations_data[frame_idx,n,0])
+            row_data[2*n+1] = float(locations_data[frame_idx,n,1])
         df.loc[len(df)] = row_data
     return df
 

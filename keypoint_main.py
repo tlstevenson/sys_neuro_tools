@@ -51,11 +51,11 @@ coordinates, confidences, bodyparts = kpms.load_keypoints(filepath_pattern=sleap
 data, metadata = kpms.format_data(coordinates, confidences, **config())
 
 #may need a seperate cell
-%matplotlib widget
+#%matplotlib widget
 kpms.noise_calibration(project_dir, coordinates, confidences, **config(), video_extension="mp4")
 
 #plt.close('all')
-%matplotlib inline
+#%matplotlib inline
 #Fit PCA Model
 pca = kpms.fit_pca(**data, **config())
 kpms.save_pca(pca, project_dir)
