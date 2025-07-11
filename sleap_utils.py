@@ -50,11 +50,19 @@ def update_sleap_settings(path=None, new_model = False, change_python_loc = Fals
             print(e)
         #Make necessary edits
         if new_model:
-            #Print because directory dialogues dont have titles
-            print("Select the Centroid Model Parent Directory")
-            data["centroid_path"] = fsu.GetDirectory("Select the Centroid Model Parent Directory")
-            print("Select the Center Model Parent Directory")
-            data["center_path"] = fsu.GetDirectory("Select the Center Model Parent Directory")
+            model_type = input("Select Model Type (1: single animal 2: centroid centered): ")
+            if model_type == "1":
+                print("Select Single Instance Model Parent Directory")
+                data["single_path"] =  fsu.GetDirectory("Select Single Instance Model Parent Directory")
+                data["centroid_path"] = "None"
+                data["center_path"] = "None"
+            else:
+                #Print because directory dialogues dont have titles
+                data["single_path"] =  "None"
+                print("Select the Centroid Model Parent Directory")
+                data["centroid_path"] = fsu.GetDirectory("Select the Centroid Model Parent Directory")
+                print("Select the Center Model Parent Directory")
+                data["center_path"] = fsu.GetDirectory("Select the Center Model Parent Directory")
         if new_write_loc:
             print("Select Analysis File Write Directory")
             data["write_dir"] = fsu.GetDirectory("Select Analysis File Write Directory") + "/" + input("Name file(no .hdf5): ") + ".hdf5"
@@ -76,10 +84,19 @@ def update_sleap_settings(path=None, new_model = False, change_python_loc = Fals
             print(e)
     else:
         #Add all entries
-        print("Select the Centroid Model Parent Directory")
-        data["centroid_path"] = fsu.GetDirectory("Select the Centroid Model Parent Directory")
-        print("Select the Center Model Parent Directory")
-        data["center_path"] = fsu.GetDirectory("Select the Center Model Parent Directory")
+        model_type = input("Select Model Type (1: single animal 2: centroid centered): ")
+        if model_type == "1":
+            print("Select Single Instance Model Parent Directory")
+            data["single_path"] =  fsu.GetDirectory("Select Single Instance Model Parent Directory")
+            data["centroid_path"] = None
+            data["center_path"] = None
+        else:
+            #Print because directory dialogues dont have titles
+            data["single_path"] =  None
+            print("Select the Centroid Model Parent Directory")
+            data["centroid_path"] = fsu.GetDirectory("Select the Centroid Model Parent Directory")
+            print("Select the Center Model Parent Directory")
+            data["center_path"] = fsu.GetDirectory("Select the Center Model Parent Directory")
         print("Select Analysis File Write Directory")
         data["write_dir"] = fsu.GetDirectory("Select Analysis File Write Directory") + "/" + input("Name file(no .hdf5): ") + ".hdf5"
         print(data["write_dir"])
