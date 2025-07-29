@@ -33,11 +33,11 @@ def RunInference(vid_path, single_path, centroid_path, centered_path, write_path
     print(video.shape, video.dtype)
 
     # Load frames
-    imgs = video[:10]
-    print(f"imgs.shape: {imgs.shape}")
+    #imgs = video
+    #print(f"imgs.shape: {imgs.shape}")
 
     # Predict on the array.
-    predictions = predictor.predict(imgs)
+    predictions = predictor.predict(video)
     predictions.export(write_path)
 
 sleap_settings_path = sys.argv[1]
