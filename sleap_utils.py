@@ -37,7 +37,7 @@ def load_sleap_settings(path=None):
     except Exception as e:
         print(e)
 
-def update_sleap_settings(path=None, new_model = False, change_python_loc = False, new_video = False, new_write_loc = False, json_exists=False):
+def update_sleap_settings(path=None, new_model = False, change_python_loc = False, new_write_loc = False, json_exists=False, changed_script_loc=False):
     path = get_settings_path(path)
     data = {}
     if json_exists:
@@ -49,6 +49,20 @@ def update_sleap_settings(path=None, new_model = False, change_python_loc = Fals
         except Exception as e:
             print(e)
         #Make necessary edits
+        #Always asks for a new video
+        print("Adding new video")
+        data["vid_path"] = fsu.GetFile("Select Video Location")
+        print("Select Analysis File Write Directory")
+        #Find where the last backslash and period are found to extract the name
+        slash_idx = data["vid_path"].rindex("/")
+        dot_idx = data["vid_path"].rindex(".")
+        hdf5_file_name = data["vid_path"][slash_idx + 1 : dot_idx] + "_labels.hdf5"
+        if new_write_loc:
+            data["write_dir"] = fsu.GetDirectory("Select Analysis File Write Directory") + "/" + hdf5_file_name
+        else:
+            data["write_dir"] = data["write_dir"][:data["write_dir"].rfind("/")] + "/" + hdf5_file_name#input("Name file(no .hdf5): ") + ".hdf5"   
+        if changed_script_loc:
+            data["script_loc"] = fsu.GetFile("Select sleap_utils_env.py")
         if new_model:
             model_type = input("Select Model Type (1: single animal 2: centroid centered): ")
             if model_type == "1":
@@ -63,19 +77,10 @@ def update_sleap_settings(path=None, new_model = False, change_python_loc = Fals
                 data["centroid_path"] = fsu.GetDirectory("Select the Centroid Model Parent Directory")
                 print("Select the Center Model Parent Directory")
                 data["center_path"] = fsu.GetDirectory("Select the Center Model Parent Directory")
-        if new_write_loc:
-            print("Select Analysis File Write Directory")
-            data["write_dir"] = fsu.GetDirectory("Select Analysis File Write Directory") + "/" + input("Name file(no .hdf5): ") + ".hdf5"
-        else:
-            print("Select Analysis File Write Directory")
-            data["write_dir"] = data["write_dir"][:data["write_dir"].rfind("/")] + "/" + input("Name file(no .hdf5): ") + ".hdf5"        
         if change_python_loc:
             data["sleap_python"] = fsu.GetFile("Select SLEAP Python Location")
             #data["sleap_python"] = fsu.GetDirectory("Select SLEAP Python Location") + "/python"
             print("Changing python location")
-        if new_video:
-            print("Adding new video")
-            data["vid_path"] = fsu.GetFile("Select Video Location")
         #Push to file
         try:
             with open(path, "w") as file:
@@ -84,6 +89,11 @@ def update_sleap_settings(path=None, new_model = False, change_python_loc = Fals
             print(e)
     else:
         #Add all entries
+        data["vid_path"] = fsu.GetFile("Select Video Location")
+        slash_idx = data["vid_path"].rindex("/")
+        dot_idx = data["vid_path"].rindex(".")
+        hdf5_file_name = data["vid_path"][slash_idx + 1 : dot_idx] + "_labels.hdf5"
+        data["write_dir"] = fsu.GetDirectory("Select Analysis File Write Directory") + "/" + hdf5_file_name
         model_type = input("Select Model Type (1: single animal 2: centroid centered): ")
         if model_type == "1":
             print("Select Single Instance Model Parent Directory")
@@ -98,11 +108,9 @@ def update_sleap_settings(path=None, new_model = False, change_python_loc = Fals
             print("Select the Center Model Parent Directory")
             data["center_path"] = fsu.GetDirectory("Select the Center Model Parent Directory")
         print("Select Analysis File Write Directory")
-        data["write_dir"] = fsu.GetDirectory("Select Analysis File Write Directory") + "/" + input("Name file(no .hdf5): ") + ".hdf5"
         print(data["write_dir"])
         data["sleap_python"] = fsu.GetFile("Select SLEAP Python Location")
         #data["sleap_python"] = fsu.GetDirectory("Select SLEAP Python Location") + "/python"
-        data["vid_path"] = fsu.GetFile("Select Video Location")
         #Push to file
         try:
             with open(path, "w") as file:

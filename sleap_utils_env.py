@@ -6,6 +6,9 @@ Created on Mon Jun 16 12:48:46 2025
 @author: alexandru
 """
 #activate sleap before running
+import os
+os.environ["QT_API"] = 'pyside2'
+
 import sys
 import sleap 
 import json
