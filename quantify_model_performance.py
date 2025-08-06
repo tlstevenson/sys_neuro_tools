@@ -10,6 +10,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import CirclePolygon
 import numpy as np
 import h5py
+import pandas as pd
+import seaborn as sns
+
 #Get the labels file
 validation_label_path="/Users/alex/ValidationData.slp"
 #Read the labels file and get labeled frames
@@ -41,9 +44,40 @@ def RunInference(vid_path, single_path, centroid_path, centered_path, write_path
 
     # Predict on the array.
     predictions = predictor.predict(video)
+    print(predictions)
     #predictions = predictor.predict(imgs)
-    predictions.export(write_path)
+    #predictions.export(write_path)
     return predictions
+
+def GetPose(frame_idx):
+    pose_1 = [710, 2525, 102091, 115703, 13613] #center
+    pose_2 = [16463, 20419, 36543, 74867, 81673] #left straight
+    pose_3 = [1, 16497, 21781, 61255, 68061] #left tilted
+    pose_4 = [54449, 1681, 3795, 56552, 78731] #right straight
+    pose_5 = [2300, 2452, 47643, 6807, 1710] #right tilted
+    pose_6 = [5275, 74238, 74299, 82780, 84006] #rearing
+    pose_7 = [27225, 27255, 30435, 122597, 122509, 1157] #grooming
+    pose_8 = [30413, 34031, 40837, 88479, 95285, 56276] #idling
+    
+    vid_idx_corrected = frame_idx+1
+    if vid_idx_corrected in pose_1:
+        return "center"
+    elif vid_idx_corrected in pose_2:
+        return "left_s"
+    elif vid_idx_corrected in pose_3:
+        return "left_t"
+    elif vid_idx_corrected in pose_4:
+        return "right_s"
+    elif vid_idx_corrected in pose_5:
+        return "right_t"
+    elif vid_idx_corrected in pose_6:
+        return "rearing"
+    elif vid_idx_corrected in pose_7:
+        return "grooming"
+    elif vid_idx_corrected in pose_8:
+        return "idling"
+    else:
+        print(f"Error: Frame {vid_idx} not found in poses")
 
 def PlotSkeleton(frame, processed_dict, skeleton_color="black", nodes_mark=[], ax=None):
     '''Uses processed dict from process_hdf5_data to visualize the skeleton
@@ -86,11 +120,11 @@ def PlotSkeleton(frame, processed_dict, skeleton_color="black", nodes_mark=[], a
         else:
             plt.plot(x, y, color = skeleton_color)
 
-vid_path = "/Users/alex/Documents/Hanks Lab/TestWorkflow/Test_0001_reformat.mp4"
-single_path = "NoFile"
-centroid_path = "/Users/alex/Documents/Hanks Lab/TestWorkflow/250219_122558.centroid.n=696"
-centered_path = "/Users/alex/Documents/Hanks Lab/TestWorkflow/250219_150141.centered_instance.n=696"
-write_path = "/Users/alex/Documents/Hanks Lab/TestWorkflow/ModelValidationPredictions.hdf5"
+vid_path = "/Users/alex/Documents/HanksLab/TestWorkflow/Test_0001_reformat.mp4"
+single_path = "/Users/alex/Downloads/250729_123240.single_instance.n=67"#"NoFile"
+centroid_path = "NoFile"#"/Users/alex/Documents/Hanks Lab/TestWorkflow/250219_122558.centroid.n=696"
+centered_path = "NoFile"#"/Users/alex/Documents/Hanks Lab/TestWorkflow/250219_150141.centered_instance.n=696"
+write_path = "/Users/alex/Documents/HanksLab/TestWorkflow/Model2ValidationPredictions.hdf5"
 vid_idxs = [label.frame_idx for label in validation_labels]
 print(vid_idxs)
 
@@ -129,33 +163,127 @@ else:
 #Overlay image, the two skeletons, circles around the nodes for each label
 video_obj = sleap.load_video(vid_path)
 
-if len(test_labels) != len(validation_labels):
-    print("MISMATCHED VALIDATION LABELS AND PREDICTIONS")
-for idx in range(len(test_labels)):
-    vid_idx = test_labels[idx].frame_idx
-    fig, ax = plt.subplots()
-    ax.imshow(np.squeeze(video_obj.get_frames(vid_idx)))
-    sleap.nn.viz.plot_instances(test_labels[idx].instances)
-    sleap.nn.viz.plot_instances(validation_labels[idx].instances)
-    print(validation_labels[idx].instances[0].points)
-    for point in validation_labels[idx].instances[0].points:
-        circle = CirclePolygon((point.x, point.y), 30, fill=False)
-        plt.gca().add_patch(circle)
-    plt.show()
-#for labeled_frame in test_labels:
-    #Adds image
-    #frame_pic = video_obj
-    #ax.imshow(frame_pic)
-    #plt.show()
-    #Plots the manual and automatic skeletons
-    #labeled_frame.plot()x
-    
-    #PlotSkeleton(validation_labels[labeled_frame.frame_idx], ax=ax)
-    #PlotSkeleton(test_labels[labeled_frame.frame_idx], ax=ax)
-    #Plots circles of correct radii around manual labels
-    #for key, value in radii:
-    #    node_location = FIX[labeled_frame.frame_idx, key]
-    #    circle = CirclePolygon(node_location, radii[key])
-    #    ax.add_patch(circle)
-#Plot percentage for each node as a bar graph
+plot_res=False
+eval_limit = 30 #Make sure this agrees with the circle drawing line
+
+if plot_res:
+    if len(test_labels) != len(validation_labels):
+        print("MISMATCHED VALIDATION LABELS AND PREDICTIONS")
+    for idx in range(len(validation_labels)):
+        if len(validation_labels[idx].instances) > 0:
+            vid_idx = validation_labels[idx].frame_idx
+            print(vid_idx)
+            fig, ax = plt.subplots()
+            ax.set_title(GetPose(vid_idx))
+            ax.imshow(np.squeeze(video_obj.get_frames(vid_idx)))
+            sleap.nn.viz.plot_instances(test_labels[idx].instances, cmap = sns.color_palette("flare"))
+            sleap.nn.viz.plot_instances(validation_labels[idx].instances)
+            #print(validation_labels[idx].instances[0].points)
+            print(f"The frame {vid_idx} has {len(validation_labels[idx].instances)} instances")
+            for point in validation_labels[idx].instances[0].points:
+                circle = CirclePolygon((point.x, point.y), eval_limit, fill=False)
+                plt.gca().add_patch(circle)
+            plt.show()
+        else:
+            print(f"The frame {test_labels[idx].frame_idx} has {len(validation_labels[idx].instances)} instances")
+            
+print("Manual names: ")
+print(validation_labels[0].instances[0].skeleton.node_names)
+print(f"Number of test labels: {len(test_labels)}")
+for i in range(len(test_labels)):
+    print(f"Labeled frame {i} number of instances: {len(test_labels[i].instances)}")
+print(f"Auto names: {test_labels[0].instances[0].skeleton.node_names}")
+#print(test_labels[0].instances[0].skeleton.node_names)
+
+#Plotting code for other analysis
+#Index 0 shown as frame 1 so any index needs to have +1 for frame #
+#score_df_rows = [] #Stores each frame before concatenation
+column_names = [name for name in validation_labels[0].instances[0].skeleton.node_names]
+column_names.append("pose")
+score_df = pd.DataFrame(columns=column_names)
+print(score_df)
+
+for idx in range(len(validation_labels)):
+    if len(validation_labels[idx].instances) > 0:
+        #Gets frame in the video and sets up dataframe columns
+        vid_idx = validation_labels[idx].frame_idx
+        node_correct = []
+        #column_names = [0 for i in range(len(validation_labels[idx].instances[0].skeleton.node_names) + 1)]
+        
+        #Iterate through nodes and calculate if they pass the distance test
+        for n in range(len(validation_labels[idx].instances[0].skeleton.node_names)):
+            test_node_name = validation_labels[idx].instances[0].skeleton.node_names[n]
+            val_node_name = validation_labels[idx].instances[0].skeleton.node_names[n]
+            #Manual: tail_end Test: tail_tip
+            if (validation_labels[idx].instances[0].skeleton.node_names[n] == 'tail_end'):
+                test_node_name = 'tail_tip'
+                #test_node_idx = test_labels[idx].instances[0].skeleton.node_names.index('tail_tip')
+                #test_node_idx = test_labels[idx].instances[0].skeleton.node_names.index(test_node_name)
+            #print(f"The current node is {test_node_name}")
+            valid_label = False
+            try:
+                test_point=test_labels[idx].instances[0][test_node_name]
+                val_point=validation_labels[idx].instances[0][val_node_name]
+                print("Successfully got both points")
+
+                test_loc=np.array([test_point.x, test_point.y])
+                val_loc=np.array([val_point.x, val_point.y])
+                print("Successfully setup point vectors")
+                
+                diff = val_loc-test_loc
+                print(f"Distance: {np.sqrt(np.dot(diff, diff))}")
+                valid_label=(np.sqrt(np.dot(diff, diff)) < eval_limit)
+            except:
+                print("Could not calculate distance (probably unidentified point)")
+            node_correct.append(valid_label)
+            #column_names[n] = validation_labels[idx].instances[0].skeleton.node_names[n]
+        #column_names[-1] = "pose"
+        new_row=None
+        
+        #Determine which pose this was
+        node_correct.append(GetPose(vid_idx))
+        score_df.loc[vid_idx] = node_correct
+        #new_row = pd.DataFrame([node_correct], columns=column_names, index=[vid_idx])
+        #score_df_rows.append(new_row)
+    else:
+        print("Instance not found.")
+        vid_idx = validation_labels[idx].frame_idx
+        rows = np.squeeze([False for i in range(len(score_df.columns))]) 
+        #Determine which pose this was
+        rows[-1] = GetPose(vid_idx)
+        score_df.loc[vid_idx] = rows
+        print("Entered Empty Row")
+            
+#score_df = pd.concat(score_df_rows)
+#score_dict[(vid_idx, validation_labels[idx].instances[0].skeleton.node_names[n])] = valid_label
 #Plot percentage correct for each pose as a bar graph
+poses = ["center", "left_s", "left_t", "right_s", "right_t", "rearing", "grooming", "idling"]
+fig, ax = plt.subplots()
+total_scores = []
+for pose in poses:
+    pose_df = score_df[score_df["pose"] == pose]
+    pose_scores=[]
+    for idx, row in pose_df.iterrows():
+        count_correct = 0
+        total = len(row.values)-1 #Subtract 1 for the pose column
+        for val in row.values:
+            if val == True:
+                count_correct = count_correct + 1
+        pose_scores.append(count_correct/total)
+    print(pose_scores)
+    total_scores.append(np.average(pose_scores))
+ax.bar(poses, total_scores)
+ax.set_title(f"Percent Correct By Pose: {eval_limit} pixel radiius")
+plt.show()
+
+#Plot percentage for each node as a bar graph
+poses = ["center", "left_s", "left_t", "right_s", "right_t", "rearing", "grooming", "idling"]
+fig_node, ax_node = plt.subplots()
+total_scores = []
+for col in score_df.columns:
+    if col != "pose":
+        score = len(score_df[score_df[col] == True]) / len(score_df[col])
+        total_scores.append(score)
+ax_node.bar(score_df.columns[:-1], total_scores) #+1 for pose -1 for starting at 1
+ax.set_title(f"Percent Correct By Node: {eval_limit} pixel radiius")
+plt.show()
