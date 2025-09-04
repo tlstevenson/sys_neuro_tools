@@ -100,11 +100,12 @@ def get_specific_data(filename, data_path, signal_name_dict):
                 # if data has already been loaded, just copy it
                 if value_path in loaded_data:
                     value_dict[value_name] = loaded_data[value_path].copy()
-                else:
+                elif (data_path + value_path) in f:
                     value_dict[value_name] = np.array(f[data_path + value_path])
                     loaded_data[value_path] = value_dict[value_name].copy()
 
-            specific_data[key] = value_dict
+            if len(value_dict) > 0: 
+                specific_data[key] = value_dict
 
     return specific_data
 
