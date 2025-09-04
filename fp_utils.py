@@ -7,19 +7,40 @@ Created on Wed Dec 20 22:33:47 2023
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LinearRegression
 from scipy.optimize import curve_fit, OptimizeWarning
-from scipy.interpolate import make_interp_spline
-import matplotlib.pyplot as plt
-from scipy.signal import butter, sosfiltfilt
+import utils
+
+try:
+    import cupy as cp
+    if cp.cuda.is_available():
+        xp = cp
+        from cupyx.scipy.interpolate import make_interp_spline
+        from cupyx.scipy.signal import butter, sosfiltfilt
+        gpu_available = True
+        
+except:
+    xp = np
+    from scipy.interpolate import make_interp_spline
+    from scipy.signal import butter, sosfiltfilt
+    gpu_available = False
 
 import warnings
 
-def fill_signal_nans(signal, order=2):
-    nan_idxs = np.isnan(signal)
-    return pd.Series(signal).interpolate(method='spline', order=order, limit_direction='both').to_numpy().copy(), nan_idxs
+def to_cupy(x):
+    if gpu_available and isinstance(x, np.ndarray):
+        return cp.asarray(x)
+    return x
 
-def filter_signal(signal, cutoff_f, sr, filter_type='lowpass'):
+def to_numpy(x):
+    if gpu_available and isinstance(x, cp.ndarray):
+        return cp.asnumpy(x)
+    return x
+
+def fill_signal_nans(signal):
+    nan_idxs = np.isnan(signal)
+    return pd.Series(signal).interpolate(method='linear', limit_direction='both').to_numpy(copy=True), nan_idxs
+
+def filter_signal(signal, cutoff_f, sr, filter_type='lowpass', order=2):
     '''
     Low-pass filters a signal with a zero-phase butterworth filter of the given cutoff frequency
 
@@ -43,13 +64,13 @@ def filter_signal(signal, cutoff_f, sr, filter_type='lowpass'):
     if any(nans):
         signal, _ = fill_signal_nans(signal)
 
-    sos = butter(2, cutoff_f, btype=filter_type, fs=sr, output='sos')
-    denoised_signal = sosfiltfilt(sos, signal)
+    sos = butter(order, cutoff_f, btype=filter_type, fs=sr, output='sos')
+    filtered_signal = sosfiltfilt(sos, to_cupy(signal))
 
     if any(nans):
-        denoised_signal[nans] = np.nan
+        filtered_signal[nans] = xp.nan
 
-    return denoised_signal
+    return to_numpy(filtered_signal)
 
 
 def calc_iso_dff(lig_signal, iso_signal, t, vary_t=True):
@@ -69,11 +90,11 @@ def calc_iso_dff(lig_signal, iso_signal, t, vary_t=True):
 
     '''
 
-    fitted_iso = fit_signal(iso_signal, lig_signal, t, vary_t)
+    fitted_iso, fit_info = fit_signal(iso_signal, lig_signal, t, vary_t)
     # calculate dF/F
     dff = ((lig_signal - fitted_iso)/fitted_iso)*100
 
-    return dff, fitted_iso
+    return dff, fitted_iso, fit_info
 
 
 def fit_signal(signal_to_fit, signal, t, vary_t=True):
@@ -97,12 +118,12 @@ def fit_signal(signal_to_fit, signal, t, vary_t=True):
     # fit the iso signal to the ligand signal
     # reg = LinearRegression(positive=True)
     # reg.fit(signal_to_fit[~nans,None], signal[~nans])
-    # fitted_signal = np.full_like(signal_to_fit, np.nan)
+    # fitted_signal = xp.full_like(signal_to_fit, xp.nan)
     # fitted_signal[~nans] = reg.predict(signal_to_fit[~nans,None])
 
     if vary_t:
         form = lambda x, a, b, c: a*x[0,:] + b*x[1,:] + c
-        s_to_fit = np.vstack((signal_to_fit[None,~nans], t[None,~nans]))
+        s_to_fit = xp.vstack((signal_to_fit[None,~nans], t[None,~nans]))
         bounds = ([      0, -np.inf, -np.inf],
                   [ np.inf,  np.inf,  np.inf])
     else:
@@ -300,7 +321,7 @@ def build_trial_dff_signal_matrix(raw_signal, ts, align_ts, pre, post, baseline_
     return signal_mat, t
 
 
-def build_time_norm_signal_matrix(signal, ts, start_align_ts, end_align_ts, n_bins, align_sel=[], interp_deg=2):
+def build_time_norm_signal_matrix(signal, ts, start_align_ts, end_align_ts, n_bins, align_sel=[], interp_deg=2, include_end=False):
     '''
     Build a matrix of signals where the time of the signal is normalized to the specified start and end timestamps
     And the signal is discretized into the given number of bins. This is done through spline interpolation.
@@ -330,7 +351,9 @@ def build_time_norm_signal_matrix(signal, ts, start_align_ts, end_align_ts, n_bi
 
     n_bins = int(n_bins)
 
-    signal_mat = np.full((len(start_align_ts), n_bins), np.nan)
+    signal_mat = xp.full((len(start_align_ts), n_bins), xp.nan)
+    signal = to_cupy(signal)
+    ts = to_cupy(ts)
 
     for i, (start_t, end_t) in enumerate(zip(start_align_ts, end_align_ts)):
 
@@ -340,16 +363,18 @@ def build_time_norm_signal_matrix(signal, ts, start_align_ts, end_align_ts, n_bi
         # find start and stop idxs of aligned signal
         rel_start_ts = ts - start_t
         rel_end_ts = ts - end_t
-        # include one extra data point for better interpolation
-        rel_start_idx = np.argmin(np.abs(rel_start_ts))-1
-        rel_end_idx = np.argmin(np.abs(rel_end_ts))+2 # added 2 because indexing ignores last value
+        # include extra points for better interpolation
+        rel_start_idx = np.argmin(np.abs(rel_start_ts))-interp_deg
+        rel_end_idx = np.argmin(np.abs(rel_end_ts))+interp_deg
+        if include_end:
+            rel_end_idx += 1 # added 1 because indexing ignores last value
 
         # build interpolating spline
         sub_ts = ts[rel_start_idx:rel_end_idx]
         sub_signal = signal[rel_start_idx:rel_end_idx]
         # remove any nans
-        nan_sel = ~np.isnan(sub_signal)
-        # ignore if all timepoints are nan
+        nan_sel = ~xp.isnan(sub_signal)
+        # ignore if all timepoints are nan or the first or last n data points are nan
         if all(~nan_sel):
             continue
 
@@ -357,8 +382,68 @@ def build_time_norm_signal_matrix(signal, ts, start_align_ts, end_align_ts, n_bi
 
         # use interpolation to get values at new bin centers
         # have the new bins contain the start and end timepoints in the center of the bin
-        bin_centers = np.linspace(start_t, end_t, n_bins)
+        bin_centers = xp.linspace(start_t, end_t, n_bins, endpoint=include_end)
         norm_sig = interp_sig(bin_centers)
+        
+        # remove any datapoints that are within nans in full signal
+        if any(~nan_sel):
+            # first get edges of nan segments
+            # pad with False at both ends so we can catch edges
+            padded_nan_sel = xp.concatenate([xp.array([False]), ~nan_sel, xp.array([False])])
+
+            diff = xp.diff(padded_nan_sel.astype(int))
+            
+            # start of segment is 1, end is -1
+            start_idxs = xp.where(diff == 1)[0]
+            end_idxs = xp.where(diff == -1)[0]
+            
+            # vectorized masking
+            left_bounds  = sub_ts[start_idxs]
+            right_bounds = sub_ts[end_idxs-1]
+
+            mask_matrix = (bin_centers[:, None] >= left_bounds) & (bin_centers[:, None] <= right_bounds)
+            norm_nans = xp.any(mask_matrix, axis=1)
+            
+            norm_sig[norm_nans] = xp.nan
+
         signal_mat[i,:] = norm_sig
 
-    return signal_mat
+    return to_numpy(signal_mat)
+
+
+def correlate(x, y, dt, max_lag=10):
+    '''
+    Compute Pearson cross-correlation between two signals for lags in [-max_lag, +max_lag],
+    ignoring NaNs in either signal.
+    
+    Returns correlation values in [-1, 1] for each lag along with the associated lag value
+    '''
+    
+    if len(x) != len(y):
+        raise ValueError('x and y must be the same length')
+        
+    x = to_cupy(x)
+    y = to_cupy(y)
+    
+    max_lag = utils.convert_to_multiple(max_lag, dt)
+    n_steps = int(max_lag/dt)
+    lag_steps = xp.arange(-n_steps, n_steps+1)
+    corr = xp.full(len(lag_steps), xp.nan, dtype=float)
+    
+    for i, lag in enumerate(lag_steps):
+        if lag < 0:
+            x_seg = x[:lag]
+            y_seg = y[-lag:]
+        elif lag > 0:
+            x_seg = x[lag:]
+            y_seg = y[:-lag]
+        else:
+            x_seg = x
+            y_seg = y
+        
+        # mask NaNs
+        mask = ~xp.isnan(x_seg) & ~xp.isnan(y_seg)
+        if xp.sum(mask) > 1:
+            corr[i] = xp.corrcoef(x_seg[mask], y_seg[mask])[0, 1]
+    
+    return corr, np.arange(-max_lag, max_lag+dt, dt)
