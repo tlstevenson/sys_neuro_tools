@@ -13,7 +13,8 @@ from pyutils import file_select_ui as fsu
 from sys_neuro_tools import math_utils
 import json
 import os
-import h5py as h5
+#TEMPORARY FIX
+#import h5py as h5
 import numpy as np
 import pandas as pd
 
@@ -37,7 +38,7 @@ def load_sleap_settings(path=None):
     except Exception as e:
         print(e)
 
-def update_sleap_settings(path=None, new_model = False, change_python_loc = False, new_write_loc = False, json_exists=False, changed_script_loc=False):
+def update_sleap_settings(path=None, new_vid_dir = False, new_model = False, change_python_loc = False, new_write_dir = False, json_exists=False, changed_script_loc=False):
     path = get_settings_path(path)
     data = {}
     if json_exists:
@@ -48,19 +49,21 @@ def update_sleap_settings(path=None, new_model = False, change_python_loc = Fals
                 print(data)
         except Exception as e:
             print(e)
+            
         #Make necessary edits
-        #Always asks for a new video
-        print("Adding new video")
-        data["vid_path"] = fsu.GetFile("Select Video Location")
-        print("Select Analysis File Write Directory")
+        #Always asks for a new video (Not true trying to ask for video directory)
+        #print("Adding new video")
+        #data["vid_path"] = fsu.GetFile("Select Video Location")
         #Find where the last backslash and period are found to extract the name
         slash_idx = data["vid_path"].rindex("/")
         dot_idx = data["vid_path"].rindex(".")
         hdf5_file_name = data["vid_path"][slash_idx + 1 : dot_idx] + "_labels.hdf5"
-        if new_write_loc:
-            data["write_dir"] = fsu.GetDirectory("Select Analysis File Write Directory") + "/" + hdf5_file_name
-        else:
-            data["write_dir"] = data["write_dir"][:data["write_dir"].rfind("/")] + "/" + hdf5_file_name#input("Name file(no .hdf5): ") + ".hdf5"   
+        if new_vid_dir:
+            data["vid_dir"] = fsu.GetDirectory("Select Directory With Video Files") #+ "/" + hdf5_file_name
+        if new_write_dir:
+            data["write_dir"] = fsu.GetDirectory("Select Analysis File Write Directory") #+ "/" + hdf5_file_name
+        #else:
+        #    data["write_dir"] = data["write_dir"][:data["write_dir"].rfind("/")] + "/" + hdf5_file_name#input("Name file(no .hdf5): ") + ".hdf5"   
         if changed_script_loc:
             data["script_loc"] = fsu.GetFile("Select sleap_utils_env.py")
         if new_model:
@@ -79,7 +82,6 @@ def update_sleap_settings(path=None, new_model = False, change_python_loc = Fals
                 data["center_path"] = fsu.GetDirectory("Select the Center Model Parent Directory")
         if change_python_loc:
             data["sleap_python"] = fsu.GetFile("Select SLEAP Python Location")
-            #data["sleap_python"] = fsu.GetDirectory("Select SLEAP Python Location") + "/python"
             print("Changing python location")
         #Push to file
         try:
@@ -89,11 +91,12 @@ def update_sleap_settings(path=None, new_model = False, change_python_loc = Fals
             print(e)
     else:
         #Add all entries
-        data["vid_path"] = fsu.GetFile("Select Video Location")
-        slash_idx = data["vid_path"].rindex("/")
-        dot_idx = data["vid_path"].rindex(".")
-        hdf5_file_name = data["vid_path"][slash_idx + 1 : dot_idx] + "_labels.hdf5"
-        data["write_dir"] = fsu.GetDirectory("Select Analysis File Write Directory") + "/" + hdf5_file_name
+        #data["vid_path"] = fsu.GetFile("Select Video Location")
+        data["vid_dir"] = fsu.GetDirectory("Select Directory With Video Files")
+        #slash_idx = data["vid_path"].rindex("/")
+        #dot_idx = data["vid_path"].rindex(".")
+        #hdf5_file_name = data["vid_path"][slash_idx + 1 : dot_idx] + "_labels.hdf5"
+        data["write_dir"] = fsu.GetDirectory("Select Analysis File Write Directory") #+ "/" + hdf5_file_name
         model_type = input("Select Model Type (1: single animal 2: centroid centered): ")
         if model_type == "1":
             print("Select Single Instance Model Parent Directory")
@@ -318,6 +321,7 @@ def PlotAnglesToPorts(angles, port_pos_list, offset, degrees=True):
 
 
 #h5 Formatting Functions
+"""
 def process_hdf5_data(filename):
     '''Returns a 'processed dictionary with information from the hdf5 file
     ---
@@ -342,7 +346,7 @@ def process_hdf5_data(filename):
                 'dset_names': dset_names, 
                 'locations': locations,
                 'edge_inds': edge_inds}
-
+"""
 def view_hdf5_data(unpacked_hdf5):
     '''Takes the dictionary given by proces_hdf5_data and prints out keys and shape
     ---
