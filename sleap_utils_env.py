@@ -29,7 +29,7 @@ def RunInference(vid_path, single_path, centroid_path, centered_path, write_path
     else:
         predictor = sleap.load_model([centroid_path, centered_path], batch_size=16)
     video = sleap.load_video(vid_path)
-    print(video.shape, video.dtype)
+    print(video.shape, video.dtype, flush=True)
 
     # Load frames
     #imgs = video
@@ -52,40 +52,39 @@ def RunInferenceDir(video_dir, single_path, centroid_path, centered_path, write_
     """
     # Ensure the directory exists
     if not os.path.isdir(video_dir):
-        print(f"Error: Directory '{video_dir}' not found.")
+        print(f"Error: Directory '{video_dir}' not found.", flush=True)
         return
     if not os.path.isdir(write_dir):
-        print(f"Error: Directory '{write_dir}' not found.")
+        print(f"Error: Directory '{write_dir}' not found.", flush=True)
         return
-
     # Iterate through all files in the directory
     for filename in os.listdir(video_dir):
-        print(filename)
+        print(filename, flush=True)
         # Construct the full file path
         file_path = os.path.join(video_dir, filename)
-        print(file_path)
+        print(file_path, flush=True)
         # Check if the file is a video (you can add more extensions if needed)
         if filename.endswith('.mp4'):
             # Label the video if its name ends with '_r'
             if filename.endswith('_r.mp4'):
-                print("The file is a video that needs to be analyzed")
+                print("The file is a video that needs to be analyzed", flush=True)
                 #Name the labels file video_r_labels.hdf5 and run inference
                 name_without_ext, ext = os.path.splitext(filename)
                 write_path = os.path.join(write_dir, f"{name_without_ext}_labels.hdf5")
-                print(write_path)
+                print(write_path, flush=True)
                 #Return resulted in error
                 try:
+                    print(f"Predicting on video: {filename} (ends with _r)", flush=True)
                     RunInference(file_path, single_path, centroid_path, centered_path, write_path)
-                    print(f"Predicting on video: {filename} (ends with _r)")
                     
                     #Rename the video file to show that it was processed (_r_l)
                     new_path = os.path.join(video_dir, f"{name_without_ext}_l{ext}")
                     os.rename(file_path, new_path)
-                    print(f"Renaming video file {file_path} to {new_path}")
+                    print(f"Renaming video file {file_path} to {new_path}", flush=True)
                 except:
-                    print("Failed to label the video: {filename}")
+                    print("Failed to label the video: {filename}", flush=True)
             else:
-                print(f"Skipping video: {filename} (doesn't end with '_r')")
+                print(f"Skipping video: {filename} (doesn't end with '_r')", flush=True)
                 continue
 
 sleap_settings_path = sys.argv[1]
