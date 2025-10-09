@@ -14,13 +14,13 @@ try:
     import cupy as cp
     if cp.cuda.is_available():
         xp = cp
-        from cupyx.scipy.interpolate import make_interp_spline
+        from cupyx.scipy.interpolate import interp1d
         from cupyx.scipy.signal import butter, sosfiltfilt
         gpu_available = True
         
 except:
     xp = np
-    from scipy.interpolate import make_interp_spline
+    from scipy.interpolate import interp1d
     from scipy.signal import butter, sosfiltfilt
     gpu_available = False
 
@@ -38,9 +38,13 @@ def to_numpy(x):
 
 def fill_signal_nans(signal):
     nan_idxs = np.isnan(signal)
-    return pd.Series(signal).interpolate(method='linear', limit_direction='both').to_numpy(copy=True), nan_idxs
+    
+    if any(nan_idxs):
+        return pd.Series(signal).interpolate(method='linear', limit_direction='both').to_numpy(copy=True), nan_idxs
+    else:
+        return signal, nan_idxs
 
-def filter_signal(signal, cutoff_f, sr, filter_type='lowpass', order=2):
+def filter_signal(signal, cutoff_f, sr, filter_type='lowpass', order=3):
     '''
     Low-pass filters a signal with a zero-phase butterworth filter of the given cutoff frequency
 
@@ -59,21 +63,17 @@ def filter_signal(signal, cutoff_f, sr, filter_type='lowpass', order=2):
 
     # handle nan values so the filtering works correctly
     # Since we don't want to just remove the nans, first interpolate them, filter, then add them back in
-    nans = np.isnan(signal)
-
-    if any(nans):
-        signal, _ = fill_signal_nans(signal)
+    signal, nans = fill_signal_nans(signal)
 
     sos = butter(order, cutoff_f, btype=filter_type, fs=sr, output='sos')
-    filtered_signal = sosfiltfilt(sos, to_cupy(signal))
+    filtered_signal = sosfiltfilt(sos, to_cupy(signal), padtype='even')
 
-    if any(nans):
-        filtered_signal[nans] = xp.nan
+    filtered_signal[nans] = xp.nan
 
     return to_numpy(filtered_signal)
 
 
-def calc_iso_dff(lig_signal, iso_signal, t, vary_t=True):
+def calc_iso_dff(lig_signal, iso_signal, t, vary_t=False):
     '''
     Calculates dF/F based on an isosbestic signal by regressing the isosbestic signal onto the ligand-dependent signal,
     then using this fit isosbestic signal as the baseline
@@ -97,7 +97,7 @@ def calc_iso_dff(lig_signal, iso_signal, t, vary_t=True):
     return dff, fitted_iso, fit_info
 
 
-def fit_signal(signal_to_fit, signal, t, vary_t=True):
+def fit_signal(signal_to_fit, signal, t, vary_t=False, fit_bands=False, f_bands=None):
     '''
     Scales and shift one signal to match another using linear regression
 
@@ -115,17 +115,54 @@ def fit_signal(signal_to_fit, signal, t, vary_t=True):
     # # find all NaNs and drop them from both signals before regressing
     nans = np.isnan(signal) | np.isnan(signal_to_fit)
 
-    # fit the iso signal to the ligand signal
-    # reg = LinearRegression(positive=True)
-    # reg.fit(signal_to_fit[~nans,None], signal[~nans])
-    # fitted_signal = xp.full_like(signal_to_fit, xp.nan)
-    # fitted_signal[~nans] = reg.predict(signal_to_fit[~nans,None])
-
-    if vary_t:
+    if vary_t and not fit_bands:
         form = lambda x, a, b, c: a*x[0,:] + b*x[1,:] + c
-        s_to_fit = xp.vstack((signal_to_fit[None,~nans], t[None,~nans]))
+        s_to_fit = np.vstack((signal_to_fit[None,~nans], t[None,~nans]))
         bounds = ([      0, -np.inf, -np.inf],
                   [ np.inf,  np.inf,  np.inf])
+    
+    elif fit_bands:
+        if f_bands is None:
+            f_bands = [[0,0.01], [0.01,0.1], [0.1,1], [1,10]] 
+
+        # dynamically create the formula to optimize
+        param_names = ['b{}'.format(i) for i in range(len(f_bands))]
+        
+        if vary_t:
+            param_names.append('b{}'.format(len(param_names)))
+        
+        expr = ' + '.join(['{}*x[{},:]'.format(p,i) for i,p in enumerate(param_names)]) + ' + c'
+
+        param_names = param_names + ['c']
+
+        # Build the lambda string and evaluate it 
+        form = eval('lambda x, {}: {}'.format(', '.join(param_names), expr))
+        
+        # all coefficients except the intercept must be positive
+        bounds = (np.zeros(len(f_bands)).tolist(), np.inf)
+        bounds[0].append(-np.inf)
+        
+        if vary_t:
+            bounds[0].append(-np.inf)
+        
+        sr = 1/np.mean(np.diff(t))
+        
+        # separate the signal to fit into different frequency band components
+        s_to_fit = np.zeros((len(f_bands), len(signal_to_fit)))
+        for i, band in enumerate(f_bands):
+
+            if band[0] == 0:
+                s_to_fit[i,:] = filter_signal(signal_to_fit, band[1], sr=sr, filter_type='lowpass')
+            elif len(band) == 1:
+                s_to_fit[i,:] = filter_signal(signal_to_fit, band[0], sr=sr, filter_type='highpass')
+            else:
+                s_to_fit[i,:] = filter_signal(signal_to_fit, band, sr=sr, filter_type='bandpass')
+                
+        if vary_t:
+            s_to_fit = np.vstack([s_to_fit, t[None,:]])
+            
+        s_to_fit = s_to_fit[:,~nans]
+        
     else:
         form = lambda x, a, b: a*x + b
         s_to_fit = signal_to_fit[~nans]
@@ -137,7 +174,6 @@ def fit_signal(signal_to_fit, signal, t, vary_t=True):
     fitted_signal[~nans] = form(s_to_fit, *params)
 
     return fitted_signal, {'params': params, 'formula': form}
-
 
 
 def fit_baseline(signal, n_points_min=10, baseline_form=None, bounds=None):
@@ -321,10 +357,10 @@ def build_trial_dff_signal_matrix(raw_signal, ts, align_ts, pre, post, baseline_
     return signal_mat, t
 
 
-def build_time_norm_signal_matrix(signal, ts, start_align_ts, end_align_ts, n_bins, align_sel=[], interp_deg=2, include_end=False):
+def build_time_norm_signal_matrix(signal, ts, start_align_ts, end_align_ts, n_bins, align_sel=None, include_end=False):
     '''
     Build a matrix of signals where the time of the signal is normalized to the specified start and end timestamps
-    And the signal is discretized into the given number of bins. This is done through spline interpolation.
+    And the signal is discretized into the given number of bins. This is done through linear interpolation.
 
     Parameters
     ----------
@@ -342,76 +378,83 @@ def build_time_norm_signal_matrix(signal, ts, start_align_ts, end_align_ts, n_bi
 
     '''
 
-    if len(align_sel) > 0:
-        start_align_ts = start_align_ts[align_sel]
-        end_align_ts = end_align_ts[align_sel]
-
     if len(start_align_ts) != len(end_align_ts):
         raise ValueError('Start and end timestamps have unequal numbers of elements')
+        
+    if align_sel is None:
+        align_sel = np.full_like(start_align_ts, True)
 
     n_bins = int(n_bins)
 
-    signal_mat = xp.full((len(start_align_ts), n_bins), xp.nan)
-    signal = to_cupy(signal)
-    ts = to_cupy(ts)
+    signal_mat = np.full((len(start_align_ts), n_bins), np.nan)
+    sig_nans = np.isnan(signal)
+
+    if any(sig_nans):
+        signal, _ = fill_signal_nans(signal)
 
     for i, (start_t, end_t) in enumerate(zip(start_align_ts, end_align_ts)):
 
-        if start_t is None or np.isnan(start_t) or end_t is None or np.isnan(end_t) or end_t < start_t:
+        if start_t is None or np.isnan(start_t) or end_t is None or np.isnan(end_t) or end_t < start_t or not align_sel[i]:
             continue
 
         # find start and stop idxs of aligned signal
-        rel_start_ts = ts - start_t
-        rel_end_ts = ts - end_t
-        # include extra points for better interpolation
-        rel_start_idx = np.argmin(np.abs(rel_start_ts))-interp_deg
-        rel_end_idx = np.argmin(np.abs(rel_end_ts))+interp_deg
-        if include_end:
-            rel_end_idx += 1 # added 1 because indexing ignores last value
-
-        # build interpolating spline
-        sub_ts = ts[rel_start_idx:rel_end_idx]
-        sub_signal = signal[rel_start_idx:rel_end_idx]
-        # remove any nans
-        nan_sel = ~xp.isnan(sub_signal)
-        # ignore if all timepoints are nan or the first or last n data points are nan
-        if all(~nan_sel):
-            continue
-
-        interp_sig = make_interp_spline(sub_ts[nan_sel], sub_signal[nan_sel], k=interp_deg)
-
-        # use interpolation to get values at new bin centers
-        # have the new bins contain the start and end timepoints in the center of the bin
-        bin_centers = xp.linspace(start_t, end_t, n_bins, endpoint=include_end)
-        norm_sig = interp_sig(bin_centers)
+        start_idx = np.argmin(np.abs(ts - start_t))
+        end_idx = np.argmin(np.abs(ts - end_t))
         
-        # remove any datapoints that are within nans in full signal
-        if any(~nan_sel):
-            # first get edges of nan segments
-            # pad with False at both ends so we can catch edges
-            padded_nan_sel = xp.concatenate([xp.array([False]), ~nan_sel, xp.array([False])])
+        if include_end:
+            end_idx += 1 # added 1 because indexing ignores last value
+        
+        if (end_idx - start_idx) == n_bins:
+            norm_sig = signal[start_idx:end_idx]
+            
+        else:
+            # include extra points for better interpolation
+            rel_start_idx = start_idx - 1
+            rel_end_idx = end_idx + 1
 
-            diff = xp.diff(padded_nan_sel.astype(int))
+            # handle nans
+            nan_sel = sig_nans[rel_start_idx:rel_end_idx]
+            # ignore if all timepoints are nan
+            if all(nan_sel):
+                continue
+    
+            # build interpolation
+            sub_ts = ts[rel_start_idx:rel_end_idx]
+            sub_signal = signal[rel_start_idx:rel_end_idx]
+            interp_sig = interp1d(sub_ts, sub_signal, kind='linear', bounds_error=False, fill_value='extrapolate')
+    
+            # use interpolation to get values at new bin centers
+            # have the new bins contain the start and end timepoints in the center of the bin
+            bin_centers = np.linspace(start_t, end_t, n_bins, endpoint=include_end)
+            norm_sig = interp_sig(bin_centers)
             
-            # start of segment is 1, end is -1
-            start_idxs = xp.where(diff == 1)[0]
-            end_idxs = xp.where(diff == -1)[0]
-            
-            # vectorized masking
-            left_bounds  = sub_ts[start_idxs]
-            right_bounds = sub_ts[end_idxs-1]
-
-            mask_matrix = (bin_centers[:, None] >= left_bounds) & (bin_centers[:, None] <= right_bounds)
-            norm_nans = xp.any(mask_matrix, axis=1)
-            
-            norm_sig[norm_nans] = xp.nan
+            # remove any datapoints that are within nans in full signal
+            if any(nan_sel):
+                # first get edges of nan segments
+                # pad with False at both ends so we can catch edges
+                padded_nan_sel = np.concatenate([np.array([False]), nan_sel, np.array([False])])
+    
+                diff = np.diff(padded_nan_sel.astype(int))
+                
+                # start of segment is 1, end is -1
+                start_idxs = np.where(diff == 1)[0]
+                end_idxs = np.where(diff == -1)[0]
+                
+                # vectorized masking
+                left_bounds  = sub_ts[start_idxs]
+                right_bounds = sub_ts[end_idxs-1]
+    
+                mask_matrix = (bin_centers[:, None] >= left_bounds) & (bin_centers[:, None] <= right_bounds)
+                norm_nans = np.any(mask_matrix, axis=1)
+                
+                norm_sig[norm_nans] = np.nan
 
         signal_mat[i,:] = norm_sig
 
-    return to_numpy(signal_mat)
+    return signal_mat
 
 
-def correlate(x, y, dt, max_lag=10):
+def correlate(x, y, dt, max_lag=10, batch_size=200, t_sel=None):
     '''
     Compute Pearson cross-correlation between two signals for lags in [-max_lag, +max_lag],
     ignoring NaNs in either signal.
@@ -422,28 +465,94 @@ def correlate(x, y, dt, max_lag=10):
     if len(x) != len(y):
         raise ValueError('x and y must be the same length')
         
-    x = to_cupy(x)
-    y = to_cupy(y)
+    t = len(x)
+    if t_sel is None:
+        t_sel = np.full(t, True)
+
+    centered_x = utils.z_score(x)
+    centered_y = utils.z_score(y)
+    
+    # mask out anything not in t_sel
+    centered_x[~t_sel] = np.nan
+    centered_y[~t_sel] = np.nan
     
     max_lag = utils.convert_to_multiple(max_lag, dt)
-    n_steps = int(max_lag/dt)
-    lag_steps = xp.arange(-n_steps, n_steps+1)
-    corr = xp.full(len(lag_steps), xp.nan, dtype=float)
+    n_lags = int(max_lag/dt)
+    lag_steps = np.arange(-n_lags, n_lags+1)
+
+    # Make a 2D lagged matrix of y (shape: n_lags × t)
+    # Each row is y shifted by a lag, with NaN fill
+    corrs = []
     
-    for i, lag in enumerate(lag_steps):
-        if lag < 0:
-            x_seg = x[:lag]
-            y_seg = y[-lag:]
-        elif lag > 0:
-            x_seg = x[lag:]
-            y_seg = y[:-lag]
-        else:
-            x_seg = x
-            y_seg = y
+    # set nans to 0 so they do not contribute to the resulting calculation
+    nans = np.isnan(centered_x)
+    centered_x[nans] = 0
+    
+    for i in range(0, len(lag_steps)+batch_size, batch_size):
         
-        # mask NaNs
-        mask = ~xp.isnan(x_seg) & ~xp.isnan(y_seg)
-        if xp.sum(mask) > 1:
-            corr[i] = xp.corrcoef(x_seg[mask], y_seg[mask])[0, 1]
+        if i+batch_size > len(lag_steps):
+            batch_lags = lag_steps[i:]
+        else:
+            batch_lags = lag_steps[i:i+batch_size]
+        
+        y_mat = np.full((len(batch_lags), t), np.nan, dtype=float)
+        for i, lag in enumerate(batch_lags):
+            if lag < 0:
+                y_mat[i, :lag] = centered_y[-lag:]   # shift second signal backward so x is leading
+            elif lag > 0:
+                y_mat[i, lag:] = centered_y[:-lag]   # shift second signal forward so x is lagging
+            else:
+                y_mat[i, :] = centered_y
+                
+        x_mat = np.broadcast_to(centered_x, (len(batch_lags), t))
+        
+        # Mask shifted NaNs
+        mask = np.broadcast_to(~nans, (len(batch_lags), t)) & ~np.isnan(y_mat)
+        y_mat[~mask] = 0
+
+        counts = np.sum(mask, axis=1)
     
-    return corr, np.arange(-max_lag, max_lag+dt, dt)
+        # compute pearson correlation coefficient for each lag
+        corrs.extend(np.sum(x_mat * y_mat, axis=1)/counts)
+    
+    return np.array(corrs), np.arange(-max_lag, max_lag+dt, dt)
+
+def correlate_over_time(x, y, dt, t_width=0.5):
+    '''
+    Compute Pearson cross-correlation between two signals over time for a sliding centered window,
+    ignoring NaNs in either signal.
+    
+    Returns correlation values in [-1, 1] for each bin over time
+    '''
+    
+    if len(x) != len(y):
+        raise ValueError('x and y must be the same length')
+
+    centered_x = utils.z_score(x)
+    centered_y = utils.z_score(y)
+
+    t_width = utils.convert_to_multiple(t_width, dt)
+    n_bins = int(t_width/dt)
+    # make sure n bins is odd so it is centered
+    if n_bins % 2 == 0:
+        n_bins += 1
+        
+    weights = np.ones(n_bins)
+    
+    # calculate correlation
+    corr = centered_x * centered_y
+    not_nans = ~np.isnan(corr)
+    corr[~not_nans] = 0
+    
+    # get moving sums through convolution
+    t_corr = np.convolve(corr, weights, mode='same')
+    counts = np.convolve(not_nans.astype(int), weights, mode='same')
+    
+    with np.errstate(invalid='ignore', divide='ignore'):
+        t_corr = t_corr / counts
+    
+    count_sel = counts < 2
+    
+    t_corr[count_sel] = np.nan
+    
+    return t_corr
