@@ -101,7 +101,7 @@ def plot_raster(spike_times, ax=None, plot_x0=True):
     return lines, ax
 
 
-def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation='h', ax=None, err=None):
+def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation='h', ax=None, err=None, x_label_rot=None):
 
     if orientation != 'h' and orientation != 'v':
         raise ValueError('The orientation can only be \'h\' for horizontal groups or \'v\' for vertically stacked bars')
@@ -164,6 +164,9 @@ def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation=
 
         ax.set_xticks(x, x_labels)
         ax.set_xlim(-width, x[-1]+width)
+        
+    if not x_label_rot is None:
+        ax.tick_params(axis='x', labelrotation=x_label_rot)
 
     if any([not l.startswith('_') for l in value_labels]):
         ax.legend()

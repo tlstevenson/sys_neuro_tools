@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit, OptimizeWarning
 import utils
+import scipy.signal as sig
 
 try:
     import cupy as cp
@@ -44,7 +45,7 @@ def fill_signal_nans(signal):
     else:
         return signal, nan_idxs
 
-def filter_signal(signal, cutoff_f, sr, filter_type='lowpass', order=3):
+def filter_signal(signal, cutoff_f, sr, filter_type='lowpass', order=3, trend_pad_len=None):
     '''
     Low-pass filters a signal with a zero-phase butterworth filter of the given cutoff frequency
 
@@ -66,11 +67,42 @@ def filter_signal(signal, cutoff_f, sr, filter_type='lowpass', order=3):
     signal, nans = fill_signal_nans(signal)
 
     sos = butter(order, cutoff_f, btype=filter_type, fs=sr, output='sos')
-    filtered_signal = sosfiltfilt(sos, to_cupy(signal), padtype='even')
+    
+    if trend_pad_len is None:
+        filtered_signal = sosfiltfilt(sos, to_cupy(signal), padtype='even')
+    else:
+        # pad the signal on each end with the extrapolated linear trend over that pad length before or after the edge
+        left_pad = extrapolate_edge(signal[:trend_pad_len], pad_len=trend_pad_len, direction='left')
+        right_pad = extrapolate_edge(signal[-trend_pad_len:], pad_len=trend_pad_len, direction='right')
+        pad_signal = np.concatenate([left_pad, signal, right_pad])
+        
+        filtered_signal = sosfiltfilt(sos, to_cupy(pad_signal), padtype=None)
+        filtered_signal = filtered_signal[trend_pad_len:-trend_pad_len]
 
     filtered_signal[nans] = xp.nan
 
     return to_numpy(filtered_signal)
+
+def extrapolate_edge(y_seg, pad_len=None, direction='right'):
+        # y_seg is the segment used for fitting in chronological order
+        n = len(y_seg)
+        # sample indices relative to segment start
+        t = np.arange(n)
+        # fit linear trend y = a*t + b
+        a, b = np.polyfit(t, y_seg, 1)
+        
+        if pad_len is None:
+            pad_len = n
+
+        # times for extrapolation
+        if direction == 'right':
+            t_extra = np.arange(1, pad_len+1) + t[-1]  # continue after last sample
+        else:
+            # for left pad, go before t=0: negative times
+            t_extra = t[0] - np.arange(pad_len, 0, -1)
+            
+        y_extra = a * t_extra + b
+        return y_extra
 
 
 def calc_iso_dff(lig_signal, iso_signal, t, vary_t=False):
@@ -556,3 +588,15 @@ def correlate_over_time(x, y, dt, t_width=0.5):
     t_corr[count_sel] = np.nan
     
     return t_corr
+
+
+def calc_power_spectra(signal, dt, f_min=0.005, f_max=20):
+
+    nperseg = round(1/dt*2/f_min)
+    
+    # get rid of nans by interpolation
+    tmp_sig, _ = fill_signal_nans(signal)
+
+    freqs, ps = sig.welch(tmp_sig, fs=1/dt, nperseg=nperseg, scaling='density')
+
+    return freqs, ps
