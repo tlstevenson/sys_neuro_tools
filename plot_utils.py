@@ -15,10 +15,16 @@ def plot_shaded_error(x, y, y_err=None, ax=None, **kwargs):
 
     if ax is None:
         ax = get_axes()
+        
+    if utils.is_scalar(y):
+        y = np.repeat(y, len(x))
 
     if not y_err is None:
         y_err = np.array(y_err)
-        if y_err.ndim == 1:
+        if y_err.ndim == 0:
+            y_err_up = np.repeat(y_err, len(x))
+            y_err_low = np.repeat(y_err, len(x))
+        elif y_err.ndim == 1:
             y_err_up = y_err
             y_err_low = y_err
         elif y_err.ndim == 2:
@@ -101,7 +107,7 @@ def plot_raster(spike_times, ax=None, plot_x0=True):
     return lines, ax
 
 
-def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation='h', ax=None, err=None, x_label_rot=None):
+def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation='h', ax=None, err=None, x_label_rot=None, colors=None):
 
     if orientation != 'h' and orientation != 'v':
         raise ValueError('The orientation can only be \'h\' for horizontal groups or \'v\' for vertically stacked bars')
@@ -136,7 +142,9 @@ def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation=
         if len(err) != n_cats:
             raise ValueError('The number of y errors ({0}) does not match the number of plot categories ({1})'.format(
                 len(err), n_cats))
-
+            
+    if colors is None:
+        colors = ['C{}'.format(i) for i in range(n_cats)]
 
     x = np.arange(len(x_labels))
 
@@ -146,7 +154,7 @@ def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation=
         width = 1/(n_cats+1)
 
         for i in range(n_cats):
-            ax.bar(x + width*i, values_list[i], width=width, label=value_labels[i], yerr=err[i])
+            ax.bar(x + width*i, values_list[i], width=width, label=value_labels[i], yerr=err[i], color=colors[i])
 
         ax.set_xticks(x + width*(n_cats-1)/2, x_labels)
         
@@ -159,7 +167,7 @@ def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation=
         for i in range(n_cats):
             vals = np.array(values_list[i])
             vals[np.isnan(vals)] = 0
-            ax.bar(x, vals, width=width, label=value_labels[i], bottom=y_start, yerr=err[i])
+            ax.bar(x, vals, width=width, label=value_labels[i], bottom=y_start, yerr=err[i], color=colors[i])
             y_start = y_start + vals
 
         ax.set_xticks(x, x_labels)

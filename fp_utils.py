@@ -11,6 +11,7 @@ from scipy.optimize import curve_fit, OptimizeWarning
 import utils
 import scipy.signal as sig
 
+
 try:
     import cupy as cp
     if cp.cuda.is_available():
@@ -82,6 +83,35 @@ def filter_signal(signal, cutoff_f, sr, filter_type='lowpass', order=3, trend_pa
     filtered_signal[nans] = xp.nan
 
     return to_numpy(filtered_signal)
+
+def decompose_signal_fbands(signal, f_bands, sr):
+    '''
+    Decompose a signal into its frequency bands
+
+    Parameters
+    ----------
+    signal : The signal to decompose
+    f_bands : The frequency bands
+    sr : The sample rate
+
+    Returns
+    -------
+    A matrix of shape len(f_bands) x len(signal) containing the portion of the signal in each frequency band
+
+    '''
+    decom_signal = np.zeros((len(f_bands), len(signal)))
+    for i, band in enumerate(f_bands):
+
+        if band[0] == 0:
+            decom_signal[i,:] = filter_signal(signal, band[1], sr=sr, filter_type='lowpass')
+        elif len(band) == 1:
+            decom_signal[i,:] = filter_signal(signal, band[0], sr=sr, filter_type='highpass')
+        else:
+            decom_signal[i,:] = filter_signal(signal, band, sr=sr, filter_type='bandpass')
+            
+    return decom_signal
+            
+    
 
 def extrapolate_edge(y_seg, pad_len=None, direction='right'):
         # y_seg is the segment used for fitting in chronological order
@@ -180,16 +210,8 @@ def fit_signal(signal_to_fit, signal, t, vary_t=False, fit_bands=False, f_bands=
         sr = 1/np.mean(np.diff(t))
         
         # separate the signal to fit into different frequency band components
-        s_to_fit = np.zeros((len(f_bands), len(signal_to_fit)))
-        for i, band in enumerate(f_bands):
-
-            if band[0] == 0:
-                s_to_fit[i,:] = filter_signal(signal_to_fit, band[1], sr=sr, filter_type='lowpass')
-            elif len(band) == 1:
-                s_to_fit[i,:] = filter_signal(signal_to_fit, band[0], sr=sr, filter_type='highpass')
-            else:
-                s_to_fit[i,:] = filter_signal(signal_to_fit, band, sr=sr, filter_type='bandpass')
-                
+        s_to_fit = decompose_signal_fbands(signal_to_fit, f_bands, sr)
+        
         if vary_t:
             s_to_fit = np.vstack([s_to_fit, t[None,:]])
             
@@ -590,7 +612,7 @@ def correlate_over_time(x, y, dt, t_width=0.5):
     return t_corr
 
 
-def calc_power_spectra(signal, dt, f_min=0.005, f_max=20):
+def calc_power_spectra(signal, dt, f_min=0.005):
 
     nperseg = round(1/dt*2/f_min)
     
