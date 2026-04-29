@@ -7,6 +7,7 @@ Created on Thu Nov 16 10:39:47 2023
 
 import numpy as np
 import pyutils.utils as utils
+import fp_utils
 import math
 
 def parse_trial_times(ttl_signal, t, pulse_width=0.001, n_trial_bits=15, signal_type='continuous'):
@@ -92,7 +93,7 @@ def parse_trial_times(ttl_signal, t, pulse_width=0.001, n_trial_bits=15, signal_
 
     return np.array(trial_start_ts), np.array(trial_nums)
 
-def decimate_data(data, target_dt = None, target_sf = None, time_key = 'time', timestamp_pos = 'mid'):
+def decimate_data(data, target_dt = None, target_sf = None, time_key = 'time'):
     '''
     Perform data decimation. If there are multiple sets of timestamps among the signals,
     will consolidate all signals to use the same timestamps.
@@ -175,32 +176,14 @@ def decimate_data(data, target_dt = None, target_sf = None, time_key = 'time', t
     # simply average over the number of bins given by the decimation factor to get the downsampled data
     if decimation > 1:
         dec_signals = {}
-        # first do signals
         for name, signal in signals.items():
-            # reshape the array into rows where columns are the values to be averaged over for decimation
-            # make the signal size divisible by the decimation factor
-            signal = np.append(signal, np.full(decimation - (len(signal) % decimation), np.nan))
-            reshape_signal = np.reshape(signal, (-1, decimation))
-            dec_signals[name] = np.nanmean(reshape_signal, axis=1)
-            signal_length = len(dec_signals[name])
+            dec_signal, dec_time = fp_utils.decimate(signal, time, decimation)
+            dec_signals[name] = dec_signal
 
-        # then do the time stamps based on provided positioning variable
-        match timestamp_pos:
-            case 'begin' | 'beginning':
-                start_t_offset = 0
-            case 'mid' | 'middle':
-                if decimation % 2 == 0:
-                    start_t_offset = (decimation+1)/2 * dt
-                else:
-                    start_t_offset = decimation/2 * dt
-            case 'end':
-                start_t_offset = decimation * dt
-
-        dec_time = time[0] + start_t_offset + (np.arange(signal_length)*decimation*dt)
     else:
         dec_signals = signals
         dec_time = time
 
-    dec_info = {'decimation': decimation, 'timestamp_pos': timestamp_pos, 'initial_dt': dt, 'decimated_dt': decimation*dt}
+    dec_info = {'decimation': decimation, 'initial_dt': dt, 'decimated_dt': decimation*dt}
 
     return dec_time, dec_signals, dec_info
