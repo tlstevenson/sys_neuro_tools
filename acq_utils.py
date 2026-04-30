@@ -177,7 +177,7 @@ def decimate_data(data, target_dt = None, target_sf = None, time_key = 'time'):
     if decimation > 1:
         dec_signals = {}
         for name, signal in signals.items():
-            dec_signal, dec_time = fp_utils.decimate(signal, time, decimation)
+            dec_signal, dec_time = fp_utils.decimate(signal, time, decimation, dt=dt)
             dec_signals[name] = dec_signal
 
     else:

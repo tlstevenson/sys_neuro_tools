@@ -49,7 +49,7 @@ def fill_signal_nans(signal):
     else:
         return signal, nan_idxs
     
-def decimate(signal, time, dec_factor):
+def decimate(signal, time, dec_factor, dt=None):
     '''
     Decimate the signal by the given factor by averaging over the signal in that many bins
 
@@ -65,17 +65,26 @@ def decimate(signal, time, dec_factor):
 
     '''
     
-    reshape_signal = np.append(signal, np.full(dec_factor - (len(signal) % dec_factor), np.nan))
+    if dt is None:
+        dt = np.mean(np.diff(time))
+        
+    pad_len = (-len(signal)) % dec_factor
+
+    if pad_len > 0:
+        reshape_signal = np.concatenate([signal, np.full(pad_len, np.nan)])
+    else:
+        reshape_signal = signal
+      
     reshape_signal = np.reshape(reshape_signal, (-1, dec_factor))
     
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)
         dec_signal = np.nanmean(reshape_signal, axis=1)
-    
-    reshape_time = np.append(time, np.full(dec_factor - (len(time) % dec_factor), np.nan))
-    reshape_time = np.reshape(reshape_time, (-1, dec_factor))
-    dec_time = np.nanmean(reshape_time, axis=1)
-    
+        
+    # enforce uniform timestamps (midpoint)
+    start_t = time[0] + (dec_factor - 1)/2 * dt
+    dec_time = start_t + np.arange(len(dec_signal)) * dec_factor * dt
+
     return dec_signal, dec_time
 
 def filter_signal(signal, cutoff_f, sr, filter_type='lowpass', order=3, trend_pad_len=None):
