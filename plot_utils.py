@@ -15,7 +15,7 @@ def plot_shaded_error(x, y, y_err=None, ax=None, **kwargs):
 
     if ax is None:
         ax = get_axes()
-        
+
     if utils.is_scalar(y):
         y = np.repeat(y, len(x))
 
@@ -43,19 +43,21 @@ def plot_shaded_error(x, y, y_err=None, ax=None, **kwargs):
             raise ValueError('Invalid error format. Must either be 1xN or 2xN where N is number of data points in x & y')
 
         line = ax.plot(x, y, zorder=2, **kwargs)
-        
+
         # make sure the fill is the same color as the signal line
-        # don't include the error in the legend
+        # and ignore the line's alpha parameter
         tmp_kwargs = kwargs.copy()
         if 'color' in tmp_kwargs:
             _ = tmp_kwargs.pop('color')
+        if 'alpha' in tmp_kwargs:
+            _ = tmp_kwargs.pop('alpha')
 
         # make sure the fill doesn't show up in the legend
         tmp_kwargs['label'] = '_'
 
         upper = y + y_err_up
         lower = y - y_err_low
-        
+
         ax.fill_between(x, upper, lower, alpha=0.2, color=line[0].get_color(), zorder=1, **tmp_kwargs)
 
     else:
@@ -107,7 +109,8 @@ def plot_raster(spike_times, ax=None, plot_x0=True):
     return lines, ax
 
 
-def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation='h', ax=None, err=None, x_label_rot=None, colors=None):
+def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation='h', ax=None, err=None, x_label_rot=None,
+                     colors=None, draw_legend=True):
 
     if orientation != 'h' and orientation != 'v':
         raise ValueError('The orientation can only be \'h\' for horizontal groups or \'v\' for vertically stacked bars')
@@ -142,7 +145,7 @@ def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation=
         if len(err) != n_cats:
             raise ValueError('The number of y errors ({0}) does not match the number of plot categories ({1})'.format(
                 len(err), n_cats))
-            
+
     if colors is None:
         colors = ['C{}'.format(i) for i in range(n_cats)]
 
@@ -157,7 +160,7 @@ def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation=
             ax.bar(x + width*i, values_list[i], width=width, label=value_labels[i], yerr=err[i], color=colors[i])
 
         ax.set_xticks(x + width*(n_cats-1)/2, x_labels)
-        
+
         ax.set_xlim(-width, x[-1]+width*n_cats)
     # else stack bars vertically
     else:
@@ -172,11 +175,11 @@ def plot_stacked_bar(values_list, value_labels=None, x_labels=None, orientation=
 
         ax.set_xticks(x, x_labels)
         ax.set_xlim(-width, x[-1]+width)
-        
-    if not x_label_rot is None:
-        ax.tick_params(axis='x', labelrotation=x_label_rot)
 
-    if any([not l.startswith('_') for l in value_labels]):
+    if not x_label_rot is None:
+        ax.tick_params(axis='x', labelrotation=x_label_rot, rotation_mode='xtick')
+
+    if draw_legend and any([not l.startswith('_') for l in value_labels]):
         ax.legend()
 
 
@@ -312,19 +315,19 @@ def plot_x0line(x0=None, ax=None, **kwargs):
 
 def plot_unity_line(ax, **kwargs):
     ''' Plots the unity line y=x '''
-    
+
     xmin, xmax = ax.get_xlim()
     ymin, ymax = ax.get_ylim()
-    
+
     # Define the range for y = x (taking min/max to avoid clipping)
     line_min = min(xmin, ymin)
     line_max = max(xmax, ymax)
-    
-    default_vals = dict(dashes=[4,4], c='grey', lw=1)
+
+    default_vals = dict(dashes=[4,4], c='grey')
     for k,v in default_vals.items():
         if not k in kwargs:
             kwargs[k] = v
-    
+
     ax.plot([line_min, line_max], [line_min, line_max], **kwargs)
 
 def plot_dashlines(vals=None, dir='v', ax=None, **kwargs):
@@ -336,7 +339,7 @@ def plot_dashlines(vals=None, dir='v', ax=None, **kwargs):
     elif utils.is_scalar(vals):
         vals = [vals]
 
-    default_vals = dict(dashes=[4,4], c='grey', lw=1)
+    default_vals = dict(dashes=[4,4], c='grey')
     for k,v in default_vals.items():
         if not k in kwargs:
             kwargs[k] = v
@@ -356,8 +359,8 @@ def show_axis_labels(ax, axis='y'):
         ax.yaxis.set_tick_params(which='both', labelleft=True)
     else:
         ax.xaxis.set_tick_params(which='both', labelleft=True)
-        
-        
+
+
 def transform_axes_to_data(x, y, ax):
     return ax.transLimits.inverted().transform((x,y))
 
